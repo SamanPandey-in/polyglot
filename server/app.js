@@ -20,6 +20,8 @@ import prCommentRouter                       from './src/api/webhooks/pr-comment
 import { requestLogger }  from './src/utils/logger.js';
 import { notFound }       from './src/middleware/notFound.middleware.js';
 import { errorHandler }   from './src/middleware/errorHandler.middleware.js';
+import { pgPool, redisClient } from './src/infrastructure/connections.js';
+import { createChatClient } from './src/services/ai/llmProvider.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -45,7 +47,26 @@ app.use(requestLogger);
 app.use(passport.initialize());
 configureGitHubPassport();
 
-app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+app.get('/health', async (_req, res) => {
+  const checks = {};
+  try { await pgPool.query('SELECT 1'); checks.postgres = 'ok'; }
+  catch { checks.postgres = 'error'; }
+
+  try { await redisClient.ping(); checks.redis = 'ok'; }
+  catch { checks.redis = 'unavailable'; }
+
+  if (process.env.NEO4J_URI) {
+    try {
+      const { getNeo4jDriver } = await import('./src/infrastructure/db/neo4jDriver.js');
+      await getNeo4jDriver().verifyConnectivity(); checks.neo4j = 'ok';
+    } catch { checks.neo4j = 'unavailable'; }
+  } else { checks.neo4j = 'disabled'; }
+
+  checks.aiProvider = createChatClient().isConfigured() ? 'configured' : 'not configured';
+
+  const allOk = checks.postgres === 'ok';
+  return res.status(allOk ? 200 : 503).json({ status: allOk ? 'ok' : 'degraded', checks });
+});
 
 app.use('/api/auth', authRouter);
 
