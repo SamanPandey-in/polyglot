@@ -185,15 +185,6 @@ export class QueryAgent extends BaseAgent {
     try {
       const cached = await this._readCache(cacheKey);
       if (cached) {
-        await this._saveQuery({
-          userId,
-          jobId,
-          question,
-          answer: cached.answer,
-          highlightedFiles: cached.highlightedFiles,
-          confidence: cached.confidence,
-        });
-
         return this.buildResult({
           jobId,
           status: 'success',
