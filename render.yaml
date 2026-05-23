@@ -1,0 +1,59 @@
+services:
+  # ── Backend Web Service ──────────────────────────────────────────────────
+  - type: web
+    name: polyglot-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: node index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "5000"
+      # Set these manually in Render Dashboard (sensitive values)
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_CALLBACK_URL
+        sync: false
+      - key: CLIENT_URL
+        sync: false
+      - key: SERVER_URL
+        sync: false
+      - key: AI_PROVIDER
+        sync: false
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_MODEL
+        sync: false
+      - key: AI_EMBEDDING_PROVIDER
+        sync: false
+      - key: AI_EMBEDDING_API_KEY
+        sync: false
+      - key: AI_EMBEDDING_MODEL
+        sync: false
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USERNAME
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+      # Redis — linked from the Redis instance below
+      - key: REDIS_URL
+        fromService:
+          name: polyglot-redis
+          type: redis
+          property: connectionString
+
+  # ── Redis ────────────────────────────────────────────────────────────────
+  - type: redis
+    name: polyglot-redis
+    plan: starter
+    maxmemoryPolicy: allkeys-lru
