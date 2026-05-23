@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { AlertCircle } from 'lucide-react';
@@ -12,6 +12,7 @@ import {
   selectGraphError,
   selectGraphStatus,
 } from '../slices/graphSlice';
+import { useToast } from '@/components/ui/toast';
 
 function toFiniteNumber(value) {
   const numberValue = Number(value);
@@ -26,6 +27,8 @@ export default function GraphPage() {
   const status = useSelector(selectGraphStatus);
   const error = useSelector(selectGraphError);
   const data = useSelector(selectGraphData);
+  const { addToast } = useToast();
+  const lastNotifiedJobId = useRef(null);
 
   const requestedJobId = useMemo(() => {
     const stateJobId = location.state?.jobId;
@@ -66,6 +69,40 @@ export default function GraphPage() {
       }),
     );
   }, [data?.jobId, dispatch, location.state, requestedJobId, shareToken]);
+
+  useEffect(() => {
+    if (status === 'succeeded' && data) {
+      const jobId = data.jobId || data?.job?.jobId || null;
+      if (jobId && lastNotifiedJobId.current !== jobId) {
+        const nodeCount = Number.isFinite(data?.nodeCount)
+          ? data.nodeCount
+          : Number.isFinite(data?.topology?.nodeCount)
+          ? data.topology.nodeCount
+          : Number.isFinite(data?.job?.nodeCount)
+          ? data.job.nodeCount
+          : 0;
+
+        const edgeCount = Number.isFinite(data?.edgeCount)
+          ? data.edgeCount
+          : Number.isFinite(data?.topology?.edgeCount)
+          ? data.topology.edgeCount
+          : Number.isFinite(data?.job?.edgeCount)
+          ? data.job.edgeCount
+          : 0;
+
+        try {
+          addToast({
+            title: 'Analysis complete',
+            message: `Analysis complete — ${nodeCount} nodes, ${edgeCount} edges`,
+          });
+        } catch (e) {
+          // ignore toast errors
+        }
+
+        lastNotifiedJobId.current = jobId;
+      }
+    }
+  }, [status, data, addToast]);
 
   if (!data && status === 'loading') {
     return (
