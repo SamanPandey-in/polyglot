@@ -1,17 +1,31 @@
-import dotenv from 'dotenv';
-import path from 'path';
+/**
+ * BUG 5 FIX: dotenv must be loaded BEFORE any other import.
+ *
+ * In the original index.js, dotenv.config() was called AFTER several imports
+ * including app.js. Because ES modules evaluate top-level code at import time,
+ * app.js read process.env.CLIENT_URL, GITHUB_CLIENT_ID etc. while still undefined.
+ * CORS and passport were configured with undefined values silently.
+ *
+ * Fix: call dotenv.config() as the very first statement before any other import.
+ */
+
+// ── Step 1: load env vars FIRST ───────────────────────────────────────────
 import { fileURLToPath } from 'url';
-import * as Sentry from '@sentry/node';
-import { startAnalysisWorker } from './src/queue/analysisQueue.js';
-import { startCacheMetricsPersistence } from './src/infrastructure/cache.js';
-import { bootstrapGraphInfrastructure } from './src/infrastructure/db/startup.js';
-import { pgPool, redisClient } from './src/infrastructure/connections.js';
-import { closeNeo4jDriver } from './src/infrastructure/db/neo4jDriver.js'; // BUG FIX
+import path from 'path';
+import dotenv from 'dotenv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
 dotenv.config({ path: path.join(__dirname, '.env') });
+
+// ── Step 2: now safe to import modules that read process.env ───────────────
+import * as Sentry from '@sentry/node';
+import { startAnalysisWorker } from './src/queue/analysisQueue.js';
+import { startCacheMetricsPersistence } from './src/infrastructure/cache.js';
+import { bootstrapGraphInfrastructure } from './src/infrastructure/db/startup.js';
+import { pgPool, redisClient } from './src/infrastructure/connections.js';
+import { closeNeo4jDriver } from './src/infrastructure/db/neo4jDriver.js';
 
 if (process.env.SENTRY_DSN) {
   Sentry.init({
@@ -21,28 +35,24 @@ if (process.env.SENTRY_DSN) {
   });
 }
 
+// Dynamic import of app.js — env vars are loaded first so CORS and passport
+// are configured with correct values
 const { default: app } = await import('./app.js');
 
 const PORT = process.env.PORT || 5000;
 
 // ── Graceful shutdown ─────────────────────────────────────────────────────
-// BUG FIX: Neo4j driver must be closed on SIGTERM/SIGINT to avoid
-// connection pool leaks. All three resources close in parallel.
-
 let isShuttingDown = false;
 
 async function shutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
-
-  console.log(`[Shutdown] Received ${signal} — closing connections gracefully...`);
-
+  console.log(`[Shutdown] Received ${signal} — closing connections...`);
   await Promise.allSettled([
     pgPool.end().then(() => console.log('[Shutdown] Postgres pool closed')),
     redisClient.quit().then(() => console.log('[Shutdown] Redis client closed')),
     closeNeo4jDriver().then(() => console.log('[Shutdown] Neo4j driver closed')),
   ]);
-
   console.log('[Shutdown] Done.');
   process.exit(0);
 }
@@ -51,17 +61,12 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT',  () => shutdown('SIGINT'));
 
 // ── Startup ───────────────────────────────────────────────────────────────
-// bootstrapGraphInfrastructure():
-//   1. Verifies Postgres connectivity (fatal if down)
-//   2. Verifies Neo4j connectivity (non-fatal — falls back to Postgres)
-//   3. Runs Neo4j migrations at startup (BUG 8 FIX — not inside per-job pipeline)
 await bootstrapGraphInfrastructure();
 
 startAnalysisWorker();
 startCacheMetricsPersistence();
 
-app.listen(PORT, () => {
-  console.log(
-    `[Server] Running on http://localhost:${PORT} (${process.env.NODE_ENV || 'development'})`,
-  );
+// Listen on 0.0.0.0 so Render's internal proxy can reach the service
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[Server] Running on port ${PORT} (${process.env.NODE_ENV || 'development'})`);
 });
