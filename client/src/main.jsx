@@ -4,6 +4,7 @@ import { Provider } from 'react-redux';
 import * as Sentry from '@sentry/react';
 import { store } from '@/app/store';
 import App from './App.jsx';
+import ToasterProvider from '@/components/ui/toast';
 import './index.css';
 
 if (import.meta.env.VITE_SENTRY_DSN) {
@@ -27,7 +28,9 @@ createRoot(document.getElementById('root')).render(
       )}
     >
       <Provider store={store}>
-        <App />
+        <ToasterProvider>
+          <App />
+        </ToasterProvider>
       </Provider>
     </Sentry.ErrorBoundary>
   </StrictMode>,

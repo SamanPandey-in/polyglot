@@ -3,7 +3,6 @@ import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Network,
-  GitBranch,
   Zap,
   ArrowRight,
   Database,
@@ -63,33 +62,6 @@ const QUICK_ACTIONS = [
   },
 ];
 
-const PHASE_ROADMAP = [
-  {
-    phase: 'Phase 1',
-    label: 'Current',
-    status: 'active',
-    items: ['AST parsing (JS/TS)', 'Dependency graph', 'Interactive visualization'],
-  },
-  {
-    phase: 'Phase 2',
-    label: 'Upcoming',
-    status: 'upcoming',
-    items: ['AI code summaries', 'Natural language Q&A', 'Dead code detection'],
-  },
-  {
-    phase: 'Phase 3',
-    label: 'Future',
-    status: 'future',
-    items: ['Impact analysis', 'Refactor suggestions', 'GitHub PR integration'],
-  },
-];
-
-const STATUS_STYLES = {
-  active:   'bg-green-500/20 text-green-400 border-green-500/30',
-  upcoming: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-  future:   'bg-gray-500/20 text-gray-400 border-gray-500/30',
-};
-
 const SORT_OPTIONS = [
   { value: 'recent', label: 'Most recent first' },
   { value: 'oldest', label: 'Oldest first' },
@@ -131,10 +103,13 @@ const formatDate = (value) => {
   if (!value) return 'Unknown';
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return 'Unknown';
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(parsed);
+  
+  const month = parsed.toLocaleString(undefined, { month: 'short' });
+  const day = parsed.getDate();
+  const year = parsed.getFullYear().toString().slice(-2);
+  const time = parsed.toLocaleString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
+  
+  return `${month} ${day}, '${year}, ${time}`;
 };
 
 const formatPercent = (value) => {
@@ -173,21 +148,32 @@ const getCacheHealthBadgeStyle = (level) => {
 
 function MetricCard({ icon, title, value, helper, index = 0 }) {
   return (
-    <Card 
-      className="shadow-neu-inset border-none bg-background/60 rounded-2xl animate-in fade-in zoom-in-95 duration-700 fill-mode-both"
-      style={{ animationDelay: `${200 + index * 100}ms` }}
+    <Card
+      className="group relative overflow-hidden shadow-neu-inset border-none bg-background/40 hover:bg-background/60 rounded-2xl transition-all duration-500 animate-in fade-in zoom-in-95 fill-mode-both active:scale-[0.98]"
+      style={{ 
+        animationDelay: `${200 + index * 100}ms`,
+        transitionTimingFunction: 'cubic-bezier(0.23, 1, 0.32, 1)'
+      }}
     >
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-3 text-xs uppercase tracking-widest font-bold text-muted-foreground/70">
-          <div className="flex size-9 items-center justify-center rounded-xl bg-background/50 shadow-neu-inset border-none">
+      <CardContent className="flex items-center justify-between p-5">
+        <div className="flex items-center gap-4">
+          <div className="flex size-11 items-center justify-center rounded-xl bg-background/50 shadow-neu-inset border border-border/5 group-hover:scale-110 transition-transform duration-500">
             {icon}
           </div>
-          <span>{title}</span>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[11px] uppercase tracking-[0.2em] font-bold text-muted-foreground/40 group-hover:text-muted-foreground/70 transition-colors duration-300">
+              {title}
+            </span>
+            {helper && (
+              <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/30">
+                {helper}
+              </p>
+            )}
+          </div>
         </div>
-      </CardHeader>
-      <CardContent className="pt-0">
-        <p className="text-3xl font-display font-bold tracking-tight text-foreground">{value}</p>
-        <p className="mt-2 text-[10px] uppercase font-bold tracking-wider text-muted-foreground/50">{helper}</p>
+        <p className="text-xl font-display font-bold tracking-tight text-foreground/80 group-hover:text-foreground transition-colors duration-300 text-right">
+          {value}
+        </p>
       </CardContent>
     </Card>
   );
@@ -252,7 +238,7 @@ export default function DashboardPage() {
   }, [dispatch, user?.id]);
 
   useEffect(() => {
-    if (!user?.id) return undefined;
+    if (!user?.id || import.meta.env.VITE_APP_ENV !== 'development') return undefined;
 
     let cancelled = false;
     cachePollFailureRef.current = 0;
@@ -340,39 +326,46 @@ export default function DashboardPage() {
   }, [searchTerm, setSearchParams, sortBy, sourceFilter]);
 
   const stats = useMemo(
-    () => [
-      {
-        key: 'total',
-        icon: <Database className="size-4 text-primary" />,
-        title: 'Analyzed repositories',
-        value: summary.totalAnalyzed,
-        helper: 'Stored for this user in the analysis history table.',
-      },
-      {
-        key: 'owners',
-        icon: <FolderGit2 className="size-4 text-primary" />,
-        title: 'Unique owners',
-        value: summary.uniqueOwners,
-        helper: 'Distinct repository owners represented in history.',
-      },
-      {
-        key: 'last',
-        icon: <Clock3 className="size-4 text-primary" />,
-        title: 'Last analyzed',
-        value: summary.lastAnalyzedAt ? formatDate(summary.lastAnalyzedAt) : 'No analyses yet',
-        helper: 'Most recent analysis timestamp returned by the backend.',
-      },
-      {
-        key: 'cache-hit-rate',
-        icon: <Zap className="size-4 text-primary" />,
-        title: 'Cache hit rate',
-        value: formatPercent(cacheMetrics.summary.hitRatePercent),
-        helper:
-          cacheMetricsStatus === 'loading'
-            ? 'Refreshing cache metrics...'
-            : `Reads ${cacheMetrics.summary.readsTotal} · Redis ${cacheMetrics.redis.status}`,
-      },
-    ],
+    () => {
+      const items = [
+        {
+          key: 'total',
+          icon: <Database className="size-4 text-primary" />,
+          title: 'Analyzed repositories',
+          value: summary.totalAnalyzed,
+          helper: '',
+        },
+        {
+          key: 'owners',
+          icon: <FolderGit2 className="size-4 text-primary" />,
+          title: 'Unique owners',
+          value: summary.uniqueOwners,
+          helper: '',
+        },
+        {
+          key: 'last',
+          icon: <Clock3 className="size-4 text-primary" />,
+          title: 'Last analyzed',
+          value: summary.lastAnalyzedAt ? formatDate(summary.lastAnalyzedAt) : 'No analyses yet',
+          helper: '',
+        },
+      ];
+
+      if (import.meta.env.VITE_APP_ENV === 'development') {
+        items.push({
+          key: 'cache-hit-rate',
+          icon: <Zap className="size-4 text-primary" />,
+          title: 'Cache hit rate',
+          value: formatPercent(cacheMetrics.summary.hitRatePercent),
+          helper:
+            cacheMetricsStatus === 'loading'
+              ? 'Refreshing cache metrics...'
+              : `Reads ${cacheMetrics.summary.readsTotal} · Redis ${cacheMetrics.redis.status}`,
+        });
+      }
+
+      return items;
+    },
     [
       cacheMetrics.redis.status,
       cacheMetrics.summary.hitRatePercent,
@@ -562,7 +555,9 @@ export default function DashboardPage() {
   const refreshHistory = () => {
     if (!user?.id) return;
     dispatch(fetchAnalyzedRepositories({ userId: user.id, page: 1, limit: 50 }));
-    dispatch(fetchCacheMetrics());
+    if (import.meta.env.VITE_APP_ENV === 'development') {
+      dispatch(fetchCacheMetrics());
+    }
   };
 
   const clearFilters = () => {
@@ -695,22 +690,22 @@ export default function DashboardPage() {
     const config =
       repo.source === 'local'
         ? {
-            source: 'local',
-            localPath: repo.fullName,
-          }
+          source: 'local',
+          localPath: repo.fullName,
+        }
         : {
-            source: 'github',
-            github: {
-              mode:
-                repo.githubMode ||
-                (repo.sourceCategory === 'github-public' ? 'public' : 'owned'),
-              owner: repo.owner,
-              repo: repo.name,
-              branch: repo.branch || 'main',
-            },
-          };
+          source: 'github',
+          github: {
+            mode:
+              repo.githubMode ||
+              (repo.sourceCategory === 'github-public' ? 'public' : 'owned'),
+            owner: repo.owner,
+            repo: repo.name,
+            branch: repo.branch || 'main',
+          },
+        };
 
-      handleSelectAnalyzeRepository(repo);
+    handleSelectAnalyzeRepository(repo);
 
     dispatch(analyzeCodebase(config));
     navigate('/graph');
@@ -723,9 +718,6 @@ export default function DashboardPage() {
         <h1 className="text-4xl font-display font-bold tracking-tight text-foreground">
           Welcome back, <span className="text-gold">{displayName}</span>
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground/80 font-medium tracking-wide">
-          CodeGraph <span className="text-gold">AI</span> · Phase 1 Visualization Engine
-        </p>
       </div>
 
       <section className="animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150">
@@ -734,8 +726,8 @@ export default function DashboardPage() {
         </h2>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {QUICK_ACTIONS.map((action, idx) => (
-            <Card 
-              key={action.title} 
+            <Card
+              key={action.title}
               className="group rounded-2xl shadow-neu-inset border-none bg-background/40 hover:bg-background/60 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 fill-mode-both"
               style={{ animationDelay: `${300 + idx * 100}ms` }}
             >
@@ -793,109 +785,111 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        <Card className="mt-4 rounded-2xl shadow-neu-inset border-none bg-background/40">
-          <CardHeader className="pb-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <div className="flex size-8 items-center justify-center rounded-lg bg-background/50 shadow-neu-inset">
-                  <BarChart3 className="size-4 text-primary" />
+        {import.meta.env.VITE_APP_ENV === 'development' && (
+          <Card className="mt-4 rounded-2xl shadow-neu-inset border-none bg-background/40">
+            <CardHeader className="pb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex size-8 items-center justify-center rounded-lg bg-background/50 shadow-neu-inset">
+                    <BarChart3 className="size-4 text-primary" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-sm font-semibold tracking-wide">Cache operations snapshot</CardTitle>
+                    <CardDescription className="text-[11px]">
+                      Rolling session view with adaptive polling and backoff.
+                    </CardDescription>
+                  </div>
                 </div>
-                <div>
-                  <CardTitle className="text-sm font-semibold tracking-wide">Cache operations snapshot</CardTitle>
-                  <CardDescription className="text-[11px]">
-                    Rolling session view with adaptive polling and backoff.
-                  </CardDescription>
-                </div>
+                <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/70">
+                  {cacheTrendSummary.latest?.generatedAt
+                    ? `Updated ${formatDate(cacheTrendSummary.latest.generatedAt)}`
+                    : 'Awaiting first metrics sample'}
+                </span>
               </div>
-              <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/70">
-                {cacheTrendSummary.latest?.generatedAt
-                  ? `Updated ${formatDate(cacheTrendSummary.latest.generatedAt)}`
-                  : 'Awaiting first metrics sample'}
-              </span>
-            </div>
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${getCacheHealthBadgeStyle(cacheHealth.level)}`}>
-                Cache health: {cacheHealth.level}
-              </span>
-              <span className="text-[10px] text-muted-foreground/70">
-                Warning floor {CACHE_HIT_RATE_WARN_PERCENT}% · Critical floor {CACHE_HIT_RATE_CRITICAL_PERCENT}%
-              </span>
-            </div>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-3">
-            {cacheHealth.alerts.length > 0 ? (
-              <div className="md:col-span-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-                <p className="flex items-center gap-1 text-[11px] font-semibold text-amber-200">
-                  <AlertTriangle className="size-3.5" />
-                  Active cache alerts
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${getCacheHealthBadgeStyle(cacheHealth.level)}`}>
+                  Cache health: {cacheHealth.level}
+                </span>
+                <span className="text-[10px] text-muted-foreground/70">
+                  Warning floor {CACHE_HIT_RATE_WARN_PERCENT}% · Critical floor {CACHE_HIT_RATE_CRITICAL_PERCENT}%
+                </span>
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-3">
+              {cacheHealth.alerts.length > 0 ? (
+                <div className="md:col-span-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+                  <p className="flex items-center gap-1 text-[11px] font-semibold text-amber-200">
+                    <AlertTriangle className="size-3.5" />
+                    Active cache alerts
+                  </p>
+                  <ul className="mt-1 space-y-1 text-[11px] text-amber-100/90">
+                    {cacheHealth.alerts.map((alert) => (
+                      <li key={alert.id}>- {alert.message}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              <div className="rounded-xl bg-background/50 px-3 py-2 shadow-neu-inset">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Hit rate trend</p>
+                <p className="mt-1 text-xl font-display font-bold text-foreground">
+                  {formatPercent(cacheTrendSummary.latest?.hitRatePercent)}
                 </p>
-                <ul className="mt-1 space-y-1 text-[11px] text-amber-100/90">
-                  {cacheHealth.alerts.map((alert) => (
-                    <li key={alert.id}>- {alert.message}</li>
-                  ))}
-                </ul>
+                <p className="text-[10px] text-muted-foreground/70">
+                  {Number.isFinite(cacheTrendSummary.hitRateDelta)
+                    ? `${cacheTrendSummary.hitRateDelta >= 0 ? '+' : ''}${cacheTrendSummary.hitRateDelta.toFixed(2)} pts from previous sample`
+                    : 'Need two samples to compute delta'}
+                </p>
               </div>
-            ) : null}
 
-            <div className="rounded-xl bg-background/50 px-3 py-2 shadow-neu-inset">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Hit rate trend</p>
-              <p className="mt-1 text-xl font-display font-bold text-foreground">
-                {formatPercent(cacheTrendSummary.latest?.hitRatePercent)}
-              </p>
-              <p className="text-[10px] text-muted-foreground/70">
-                {Number.isFinite(cacheTrendSummary.hitRateDelta)
-                  ? `${cacheTrendSummary.hitRateDelta >= 0 ? '+' : ''}${cacheTrendSummary.hitRateDelta.toFixed(2)} pts from previous sample`
-                  : 'Need two samples to compute delta'}
-              </p>
-            </div>
+              <div className="rounded-xl bg-background/50 px-3 py-2 shadow-neu-inset">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Read throughput</p>
+                <p className="mt-1 text-xl font-display font-bold text-foreground">
+                  {formatCompactNumber(cacheTrendSummary.latest?.readsTotal)}
+                </p>
+                <p className="text-[10px] text-muted-foreground/70">
+                  {Number.isFinite(cacheTrendSummary.readsDelta)
+                    ? `${cacheTrendSummary.readsDelta >= 0 ? '+' : ''}${cacheTrendSummary.readsDelta} reads since previous sample`
+                    : 'Need two samples to compute delta'}
+                </p>
+              </div>
 
-            <div className="rounded-xl bg-background/50 px-3 py-2 shadow-neu-inset">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Read throughput</p>
-              <p className="mt-1 text-xl font-display font-bold text-foreground">
-                {formatCompactNumber(cacheTrendSummary.latest?.readsTotal)}
-              </p>
-              <p className="text-[10px] text-muted-foreground/70">
-                {Number.isFinite(cacheTrendSummary.readsDelta)
-                  ? `${cacheTrendSummary.readsDelta >= 0 ? '+' : ''}${cacheTrendSummary.readsDelta} reads since previous sample`
-                  : 'Need two samples to compute delta'}
-              </p>
-            </div>
+              <div className="rounded-xl bg-background/50 px-3 py-2 shadow-neu-inset">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Read errors</p>
+                <p className="mt-1 text-xl font-display font-bold text-foreground">
+                  {formatCompactNumber(cacheTrendSummary.latest?.readError)}
+                </p>
+                <p className="text-[10px] text-muted-foreground/70">
+                  {Number.isFinite(cacheTrendSummary.errorDelta)
+                    ? `${cacheTrendSummary.errorDelta >= 0 ? '+' : ''}${cacheTrendSummary.errorDelta} since previous sample`
+                    : 'Need two samples to compute delta'}
+                </p>
+              </div>
 
-            <div className="rounded-xl bg-background/50 px-3 py-2 shadow-neu-inset">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Read errors</p>
-              <p className="mt-1 text-xl font-display font-bold text-foreground">
-                {formatCompactNumber(cacheTrendSummary.latest?.readError)}
-              </p>
-              <p className="text-[10px] text-muted-foreground/70">
-                {Number.isFinite(cacheTrendSummary.errorDelta)
-                  ? `${cacheTrendSummary.errorDelta >= 0 ? '+' : ''}${cacheTrendSummary.errorDelta} since previous sample`
-                  : 'Need two samples to compute delta'}
-              </p>
-            </div>
-
-            <div className="md:col-span-3 rounded-xl bg-background/60 px-3 py-3 shadow-neu-inset">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Session sparkline</p>
-              {cacheTrendBars.length > 0 ? (
-                <div className="mt-2 flex h-20 items-end gap-1">
-                  {cacheTrendBars.map((bar) => (
-                    <div
-                      key={bar.id}
-                      className="group relative h-full flex-1 rounded-sm bg-gold/10"
-                      title={`Hit rate ${bar.label}`}
-                    >
+              <div className="md:col-span-3 rounded-xl bg-background/60 px-3 py-3 shadow-neu-inset">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Session sparkline</p>
+                {cacheTrendBars.length > 0 ? (
+                  <div className="mt-2 flex h-20 items-end gap-1">
+                    {cacheTrendBars.map((bar) => (
                       <div
-                        className="absolute bottom-0 left-0 right-0 rounded-sm bg-gold/70 transition-all duration-300 group-hover:bg-gold"
-                        style={{ height: bar.height }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-2 text-xs text-muted-foreground">Collecting cache trend samples...</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                        key={bar.id}
+                        className="group relative h-full flex-1 rounded-sm bg-gold/10"
+                        title={`Hit rate ${bar.label}`}
+                      >
+                        <div
+                          className="absolute bottom-0 left-0 right-0 rounded-sm bg-gold/70 transition-all duration-300 group-hover:bg-gold"
+                          style={{ height: bar.height }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-muted-foreground">Collecting cache trend samples...</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="mt-4">
           <Card className="mb-4 shadow-neu-inset border-none bg-background/40 rounded-2xl animate-in fade-in slide-in-from-bottom-2 duration-500 delay-300">
@@ -1106,11 +1100,10 @@ export default function DashboardPage() {
                           title={repo.isStarred ? 'Remove from favorites' : 'Add to favorites'}
                         >
                           <Star
-                            className={`size-3.5 ${
-                              repo.isStarred
+                            className={`size-3.5 ${repo.isStarred
                                 ? 'fill-gold text-gold'
                                 : 'text-muted-foreground'
-                            } transition-all`}
+                              } transition-all`}
                           />
                         </Button>
 
@@ -1238,50 +1231,6 @@ export default function DashboardPage() {
               })}
             </div>
           ) : null}
-        </div>
-      </section>
-
-      <section>
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-          Roadmap
-        </h2>
-        <div className="grid gap-6 sm:grid-cols-3">
-          {PHASE_ROADMAP.map(({ phase, label, status, items }, idx) => (
-            <Card 
-              key={phase} 
-              className="rounded-2xl shadow-neu-inset border-none bg-background/40 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 fill-mode-both"
-              style={{ animationDelay: `${500 + idx * 100}ms` }}
-            >
-              <CardHeader className="pb-4">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-xs font-bold uppercase tracking-wider opacity-60">{phase}</CardTitle>
-                  <span
-                    className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-widest ${STATUS_STYLES[status]}`}
-                  >
-                    {label}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <ul className="flex flex-col gap-3">
-                  {items.map((item) => (
-                    <li key={item} className="flex items-center gap-3 text-xs font-medium text-foreground/70 group/item">
-                      {status === 'active' ? (
-                        <div className="flex size-5 items-center justify-center rounded-full bg-green-500/10 border border-green-500/20 shadow-sm">
-                          <GitBranch className="size-2.5 text-green-500" />
-                        </div>
-                      ) : (
-                        <div className="flex size-5 items-center justify-center rounded-full bg-muted/50 border border-border/20 shadow-sm">
-                          <Zap className="size-2.5 text-muted-foreground/40" />
-                        </div>
-                      )}
-                      <span className="group-hover/item:text-gold transition-colors">{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          ))}
         </div>
       </section>
     </div>

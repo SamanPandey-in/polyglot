@@ -26,8 +26,8 @@ export class GraphPanel {
 
     // Otherwise, create a new panel
     const panel = vscode.window.createWebviewPanel(
-      'codegraphAiGraph',
-      'CodeGraph AI',
+      'polyglotGraph',
+      'PolyGlot',
       column,
       {
         enableScripts: true,
@@ -67,7 +67,7 @@ export class GraphPanel {
             await this._sendGraphData();
             break;
           case 'openSettings':
-            vscode.commands.executeCommand('workbench.action.openSettings', 'codegraphAi');
+            vscode.commands.executeCommand('workbench.action.openSettings', 'polyglot');
             break;
           case 'selectJobId':
             this._apiClient.setCurrentJobId(message.jobId);
@@ -140,7 +140,7 @@ export class GraphPanel {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="${styleResetUri}">
   <link rel="stylesheet" href="${styleMainUri}">
-  <title>CodeGraph AI</title>
+  <title>PolyGlot</title>
 </head>
 <body>
   <div id="root"></div>

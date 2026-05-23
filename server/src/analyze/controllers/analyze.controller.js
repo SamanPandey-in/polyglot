@@ -178,6 +178,9 @@ export async function analyzeController(req, res, next) {
       repositoryId,
       userId,
       githubToken: req.cookies?.github_token,
+      // optional forcing source for manual testing
+      // forceNeo4j: true,
+      // forcePostgres: true,
     };
 
     await enqueueAnalysisJob({

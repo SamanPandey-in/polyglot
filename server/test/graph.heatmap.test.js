@@ -1,17 +1,16 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import jwt from 'jsonwebtoken';
+import request from 'supertest';
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
 process.env.DATABASE_URL =
-  process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5433/codegraph';
+  process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5433/polyglot';
 process.env.REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
 let app;
 let pgPool;
 let redisClient;
-let server;
-let baseUrl;
 
 async function settleWithTimeout(promise, timeoutMs = 3000) {
   let timer;
@@ -36,30 +35,14 @@ async function settleWithTimeout(promise, timeoutMs = 3000) {
 before(async () => {
   ({ default: app } = await import('../app.js'));
   ({ pgPool, redisClient } = await import('../src/infrastructure/connections.js'));
-
-  await new Promise((resolve) => {
-    server = app.listen(0, resolve);
-  });
-
-  const address = server.address();
-  baseUrl = `http://127.0.0.1:${address.port}`;
 });
 
 after(async () => {
-  await settleWithTimeout(
-    new Promise((resolve, reject) => {
-      server.close((error) => {
-        if (error) return reject(error);
-        return resolve();
-      });
-    }),
-  );
-
   await settleWithTimeout(redisClient.quit());
   await settleWithTimeout(pgPool.end());
 });
 
-test('GET /api/graph/:jobId/heatmap returns nodes ordered by risk score', async () => {
+test('GET /api/graph/:jobId/heatmap', async () => {
   const userId = '9e4f6d7a-31e1-4d9f-8575-b9e5428eb111';
   const repositoryId = '2c4ef2f5-019e-41fd-b6f1-9652d4a7c222';
   const jobId = '14882a4f-f885-4488-8afb-7b15a2c3d333';
@@ -105,35 +88,30 @@ test('GET /api/graph/:jobId/heatmap returns nodes ordered by risk score', async 
 
   try {
     const token = jwt.sign({ id: userId }, process.env.JWT_SECRET);
-    const response = await fetch(`${baseUrl}/api/graph/${jobId}/heatmap`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    assert.equal(response.status, 200);
+    const authResponse = await request(app)
+      .get(`/api/graph/${jobId}/heatmap`)
+      .set('Authorization', `Bearer ${token}`);
+    assert.equal(authResponse.status, 200);
 
-    const payload = await response.clone().json();
-    assert.equal(Array.isArray(payload.hotspots), true);
-    assert.equal(payload.hotspots.length, 3);
+    const authPayload = authResponse.body;
+    assert.equal(Array.isArray(authPayload.hotspots), true);
+    assert.equal(authPayload.hotspots.length, 3);
 
-    assert.equal(payload.hotspots[0].filePath, 'src/high-risk.js');
-    assert.equal(payload.hotspots[0].riskScore, 28);
-    assert.equal(payload.hotspots[1].filePath, 'src/medium-risk.js');
-    assert.equal(payload.hotspots[1].riskScore, 9);
-    assert.equal(payload.hotspots[2].filePath, 'src/low-risk.js');
-    assert.equal(payload.hotspots[2].riskScore, 1);
+    assert.equal(authPayload.hotspots[0].filePath, 'src/high-risk.js');
+    assert.equal(authPayload.hotspots[0].riskScore, 28);
+    assert.equal(authPayload.hotspots[1].filePath, 'src/medium-risk.js');
+    assert.equal(authPayload.hotspots[1].riskScore, 9);
+    assert.equal(authPayload.hotspots[2].filePath, 'src/low-risk.js');
+    assert.equal(authPayload.hotspots[2].riskScore, 1);
+
+    const unauthResponse = await request(app).get('/api/graph/unknown-job/heatmap');
+    assert.equal(unauthResponse.status, 401);
+
+    assert.equal(unauthResponse.body.error, 'Authentication required.');
   } finally {
     await pgPool.query('DELETE FROM graph_nodes WHERE job_id = $1', [jobId]);
     await pgPool.query('DELETE FROM analysis_jobs WHERE id = $1', [jobId]);
     await pgPool.query('DELETE FROM repositories WHERE id = $1', [repositoryId]);
     await pgPool.query('DELETE FROM users WHERE id = $1', [userId]);
   }
-});
-
-test('GET /api/graph/:jobId/heatmap rejects requests without authentication', async () => {
-  const response = await fetch(`${baseUrl}/api/graph/unknown-job/heatmap`);
-  assert.equal(response.status, 401);
-
-  const payload = await response.json();
-  assert.equal(payload.error, 'Authentication required.');
 });

@@ -14,7 +14,7 @@ after(async () => {
 });
 
 test('PolyglotParserAgent parses Python and Go files via tree-sitter worker', async () => {
-  const rootDir = await mkdtemp(path.join(os.tmpdir(), 'codegraph-parser-'));
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), 'polyglot-parser-'));
   tempDirs.push(rootDir);
 
   const pyPath = path.join(rootDir, 'service.py');

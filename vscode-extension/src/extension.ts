@@ -5,13 +5,13 @@ import { ApiClient } from './ApiClient';
 
 export function activate(context: vscode.ExtensionContext) {
   const apiClient = new ApiClient(
-    vscode.workspace.getConfiguration('codegraphAi').get('serverUrl') || 'http://localhost:5000',
-    vscode.workspace.getConfiguration('codegraphAi').get('apiToken') || ''
+    vscode.workspace.getConfiguration('polyglot').get('serverUrl') || 'http://localhost:5000',
+    vscode.workspace.getConfiguration('polyglot').get('apiToken') || ''
   );
 
   // Command: Open graph for current workspace
   context.subscriptions.push(
-    vscode.commands.registerCommand('codegraphAi.openGraph', async () => {
+    vscode.commands.registerCommand('polyglot.openGraph', async () => {
       const repoPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!repoPath) {
         vscode.window.showErrorMessage('No workspace folder open.');

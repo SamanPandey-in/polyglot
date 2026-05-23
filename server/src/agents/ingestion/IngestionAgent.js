@@ -244,7 +244,7 @@ export class IngestionAgent extends BaseAgent {
     const response = await fetch(archiveUrl, {
       headers: {
         Accept: 'application/vnd.github+json',
-        'User-Agent': 'codegraph-ai',
+        'User-Agent': 'polyglot',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
     });

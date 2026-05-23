@@ -1,13 +1,6 @@
-import neo4j from 'neo4j-driver';
 import { BaseAgent } from '../core/BaseAgent.js';
 import { scoreNeo4jSeed } from '../core/confidence.js';
-
-function getNeo4jDriver() {
-  const uri = process.env.NEO4J_URI || 'bolt://localhost:7687';
-  const user = process.env.NEO4J_USER || 'neo4j';
-  const pass = process.env.NEO4J_PASSWORD || 'neo4j';
-  return neo4j.driver(uri, neo4j.auth.basic(user, pass));
-}
+import { getNeo4jDriver } from '../../infrastructure/db/neo4jDriver.js';
 
 const VALID_TYPES = new Set([
   'IMPORTS',
@@ -61,6 +54,7 @@ export class Neo4jSeedAgent extends BaseAgent {
       });
     }
 
+    // Use the singleton driver
     const driver = getNeo4jDriver();
     const session = driver.session();
 
@@ -69,6 +63,7 @@ export class Neo4jSeedAgent extends BaseAgent {
     let failed = 0;
 
     try {
+      // Ensure constraints are in place (already handled by migrations, but kept for robustness)
       await session.run(`
         CREATE CONSTRAINT file_node_id IF NOT EXISTS
         FOR (f:CodeFile) REQUIRE (f.jobId, f.path) IS UNIQUE
@@ -132,7 +127,7 @@ export class Neo4jSeedAgent extends BaseAgent {
       errors.push({ code: 500, message: error.message });
     } finally {
       await session.close();
-      await driver.close();
+      // Note: We DO NOT close the driver here as it is a singleton managed by the driver module.
     }
 
     const confidence = scoreNeo4jSeed({

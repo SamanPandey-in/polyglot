@@ -1,30 +1,34 @@
-import path from 'path';
-import { existsSync } from 'fs';
-import { BaseAgent } from '../core/BaseAgent.js';
-import { scoreGraphBuilder } from '../core/confidence.js';
+import path from "path";
+import { existsSync } from "fs";
+import { BaseAgent } from "../core/BaseAgent.js";
+import { scoreGraphBuilder } from "../core/confidence.js";
 
-const RESOLVE_EXTS = ['.js', '.ts', '.jsx', '.tsx', '.py', '.go'];
+const RESOLVE_EXTS = [".js", ".ts", ".jsx", ".tsx", ".py", ".go"];
 
 function inferFileType(relPath) {
-  const normalized = relPath.replace(/\\/g, '/').toLowerCase();
-  const segments = normalized.split('/');
-  const filename = segments[segments.length - 1] || '';
+  const normalized = relPath.replace(/\\/g, "/").toLowerCase();
+  const segments = normalized.split("/");
+  const filename = segments[segments.length - 1] || "";
 
-  if (segments.some((s) => s === 'components' || s === 'component')) return 'component';
-  if (segments.some((s) => s === 'pages' || s === 'views' || s === 'screens')) return 'page';
-  if (segments.some((s) => s === 'hooks')) return 'hook';
-  if (segments.some((s) => s === 'services' || s === 'api' || s === 'apis')) return 'service';
-  if (segments.some((s) => s === 'utils' || s === 'helpers' || s === 'lib')) return 'util';
-  if (/config|\.conf\.|\.rc\./.test(filename)) return 'config';
-  return 'module';
+  if (segments.some((s) => s === "components" || s === "component"))
+    return "component";
+  if (segments.some((s) => s === "pages" || s === "views" || s === "screens"))
+    return "page";
+  if (segments.some((s) => s === "hooks")) return "hook";
+  if (segments.some((s) => s === "services" || s === "api" || s === "apis"))
+    return "service";
+  if (segments.some((s) => s === "utils" || s === "helpers" || s === "lib"))
+    return "util";
+  if (/config|\.conf\.|\.rc\./.test(filename)) return "config";
+  return "module";
 }
 
 function normalizeRelative(filePath, rootDir) {
-  return path.relative(rootDir, filePath).replace(/\\/g, '/');
+  return path.relative(rootDir, filePath).replace(/\\/g, "/");
 }
 
 function resolveToAbsolute(fromFile, specifier) {
-  if (!specifier.startsWith('.') && !specifier.startsWith('/')) return null;
+  if (!specifier.startsWith(".") && !specifier.startsWith("/")) return null;
 
   const base = path.resolve(path.dirname(fromFile), specifier);
 
@@ -36,7 +40,7 @@ function resolveToAbsolute(fromFile, specifier) {
   }
 
   for (const ext of RESOLVE_EXTS) {
-    const candidate = path.join(base, 'index' + ext);
+    const candidate = path.join(base, "index" + ext);
     if (existsSync(candidate)) return candidate;
   }
 
@@ -44,7 +48,10 @@ function resolveToAbsolute(fromFile, specifier) {
 }
 
 function isLocalSpecifier(specifier) {
-  return typeof specifier === 'string' && (specifier.startsWith('.') || specifier.startsWith('/'));
+  return (
+    typeof specifier === "string" &&
+    (specifier.startsWith(".") || specifier.startsWith("/"))
+  );
 }
 
 function findStronglyConnectedComponents(adjacency) {
@@ -92,7 +99,7 @@ function findStronglyConnectedComponents(adjacency) {
 }
 
 export class GraphBuilderAgent extends BaseAgent {
-  agentId = 'graph-builder-agent';
+  agentId = "graph-builder-agent";
   maxRetries = 1;
   timeoutMs = 180_000;
 
@@ -102,15 +109,23 @@ export class GraphBuilderAgent extends BaseAgent {
     const warnings = [];
 
     const rootDir = input?.extractedPath || input?.rootDir;
-    const parsedFiles = Array.isArray(input?.parsedFiles) ? input.parsedFiles : [];
+    const parsedFiles = Array.isArray(input?.parsedFiles)
+      ? input.parsedFiles
+      : [];
 
     if (!rootDir || parsedFiles.length === 0) {
       return this.buildResult({
         jobId: context?.jobId,
-        status: 'failed',
+        status: "failed",
         confidence: 0,
         data: {},
-        errors: [{ code: 400, message: 'GraphBuilderAgent requires extractedPath/rootDir and parsedFiles.' }],
+        errors: [
+          {
+            code: 400,
+            message:
+              "GraphBuilderAgent requires extractedPath/rootDir and parsedFiles.",
+          },
+        ],
         warnings,
         metrics: {},
         processingTimeMs: Date.now() - start,
@@ -172,7 +187,9 @@ export class GraphBuilderAgent extends BaseAgent {
         },
       };
 
-      functionNodes[source] = Array.isArray(parsed.functionNodes) ? parsed.functionNodes : [];
+      functionNodes[source] = Array.isArray(parsed.functionNodes)
+        ? parsed.functionNodes
+        : [];
 
       adjacency.set(source, deps);
       if (!reverse.has(source)) reverse.set(source, []);
@@ -184,7 +201,7 @@ export class GraphBuilderAgent extends BaseAgent {
         edges.push({
           source,
           target: dep,
-          type: 'import',
+          type: "import",
         });
       }
     }
@@ -196,12 +213,23 @@ export class GraphBuilderAgent extends BaseAgent {
 
     const sccs = findStronglyConnectedComponents(adjacency);
     const cycles = sccs.filter((component) => component.length > 1);
+    const relationshipTypeCount = new Set(
+      edges.map((edge) => edge.type).filter(Boolean),
+    ).size;
+    const largestCycleSize = cycles.reduce(
+      (max, component) => Math.max(max, component.length),
+      0,
+    );
 
     const topology = {
       nodeCount: Object.keys(graph).length,
       edgeCount: edges.length,
       cyclesDetected: cycles.length,
       cycles,
+      relationshipTypeCount,
+      distinctRelationshipTypes: relationshipTypeCount,
+      largestCycleSize,
+      maxCycleSize: largestCycleSize,
       unresolvedImports: unresolvedLocalImports,
       localImportSpecifiers,
       externalImportSpecifiers,
@@ -220,7 +248,7 @@ export class GraphBuilderAgent extends BaseAgent {
 
     return this.buildResult({
       jobId: context?.jobId,
-      status: 'success',
+      status: "success",
       confidence,
       data: { graph, edges, topology, functionNodes },
       errors,

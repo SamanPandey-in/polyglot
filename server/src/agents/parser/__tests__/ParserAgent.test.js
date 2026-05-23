@@ -15,7 +15,7 @@ afterEach(async () => {
 
 describe('ParserAgent', () => {
   it('routes Python and Go files to dedicated workers', async () => {
-    const rootDir = await mkdtemp(path.join(os.tmpdir(), 'codegraph-vitest-parser-'));
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), 'polyglot-vitest-parser-'));
     tempDirs.push(rootDir);
 
     const pyPath = path.join(rootDir, 'service.py');

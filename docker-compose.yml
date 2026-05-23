@@ -22,7 +22,9 @@ services:
       - "6379:6379"
 
   backend:
-    build: ./server
+    build:
+      context: ./server
+      dockerfile: Dockerfile
     container_name: codegraph-backend
     depends_on:
       - postgres

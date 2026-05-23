@@ -9,12 +9,13 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "migrate": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ./src/infrastructure/migrations/001_initial.sql && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ./src/infrastructure/migrations/002_function_nodes.sql && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ./src/infrastructure/migrations/003_share_tokens.sql && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ./src/infrastructure/migrations/004_analysis_jobs_metadata.sql && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ./src/infrastructure/migrations/005_polyglot_statuses.sql && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ./src/infrastructure/migrations/006_contracts.sql && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ./src/infrastructure/migrations/007_hot_query_indexes.sql",
+    "migrate": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ./src/infrastructure/migrations/001_initial.sql && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ./src/infrastructure/migrations/002_function_nodes.sql && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ./src/infrastructure/migrations/003_share_tokens.sql && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ./src/infrastructure/migrations/004_analysis_jobs_metadata.sql && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ./src/infrastructure/migrations/005_polyglot_statuses.sql && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ./src/infrastructure/migrations/006_contracts.sql && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ./src/infrastructure/migrations/007_hot_query_indexes.sql && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ./src/infrastructure/migrations/008_db_type_column.sql",
     "db:migrate": "npm run migrate",
     "test": "node --test test/cache.metrics.test.js test/cacheMetricsPersistence.test.js test/repositories.cache-metrics.test.js test/ai.queries.test.js test/ai.snippet-impact.test.js test/ai.suggest-refactor.test.js test/graph.heatmap.test.js test/jobs.stream.auth.test.js test/github.webhook.test.js test/parser.multilang.test.js test/pr-comment.test.js test/snippet.analyzer.confidence.test.js",
     "test:ai-queries": "node --test test/ai.queries.test.js",
     "test:unit": "vitest run --configLoader native --pool threads",
-    "test:coverage": "vitest run --coverage --configLoader native --pool threads"
+    "test:coverage": "vitest run --coverage --configLoader native --pool threads",
+    "neo4j:migrate": "node -e \"import('./src/infrastructure/db/migrate.js').then(m=>m.runMigrations()).catch(e=>{console.error(e); process.exit(1)})\""
   },
   "dependencies": {
     "@babel/parser": "^7.23.6",
@@ -31,7 +32,7 @@
     "express-rate-limit": "^7.1.5",
     "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.3",
-    "neo4j-driver": "^5.28.1",
+    "neo4j-driver": "^5.28.3",
     "openai": "^6.33.0",
     "p-limit": "^5.0.0",
     "passport": "^0.7.0",
@@ -44,6 +45,7 @@
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.8",
+    "dotenv-cli": "^11.0.0",
     "eslint": "^9.39.2",
     "nodemon": "^3.1.11",
     "prettier": "^3.7.4",

@@ -1,5 +1,5 @@
 /**
- * API Client for CodeGraph backend
+ * API Client for PolyGlot backend
  * Handles authentication and graph data retrieval
  */
 export class ApiClient {

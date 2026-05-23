@@ -55,6 +55,11 @@ async function ensureOwnedJobAccess(req, res) {
 
   const jobId = String(req.params?.jobId || '').trim();
 
+  if (!isUuid(jobId)) {
+    res.status(404).json({ error: 'Analysis job not found.' });
+    return null;
+  }
+
   const jobCheck = await pgPool.query(
     `
       SELECT id
@@ -84,6 +89,10 @@ router.get('/:jobId/functions/*filePath', functionNodesLimiter, async (req, res,
 
   if (!rawFilePath) {
     return res.status(400).json({ error: 'filePath is required.' });
+  }
+
+  if (rawFilePath.includes('../') || rawFilePath.includes('..\\')) {
+    return res.status(400).json({ error: 'Invalid file path.' });
   }
 
   let filePath = rawFilePath;
@@ -235,7 +244,8 @@ router.get('/:jobId/heatmap', async (req, res, next) => {
     const result = await pgPool.query(
       `
         SELECT file_path, file_type, metrics,
-               (metrics->>'inDegree')::int * COALESCE((metrics->>'complexity')::numeric, 1) AS risk_score
+               COALESCE((metrics->>'inDegree')::numeric, 0)
+                 * COALESCE((metrics->>'complexity')::numeric, 1.0) AS risk_score
         FROM graph_nodes
         WHERE job_id = $1
         ORDER BY risk_score DESC

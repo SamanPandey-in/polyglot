@@ -74,7 +74,7 @@ async function githubFetchRaw(urlOrPath, { token, headers = {}, method = 'GET', 
     method,
     headers: {
       Accept: 'application/vnd.github+json',
-      'User-Agent': 'codegraph-ai',
+      'User-Agent': 'polyglot',
       ...(body ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers,
@@ -329,7 +329,7 @@ export async function updateRepoFileContent({
     token,
     method: 'PUT',
     body: {
-      message: message || `Update ${path} via CodeGraph AI`,
+      message: message || `Update ${path} via PolyGlot`,
       content: encodeGitHubBase64Content(content),
       sha,
       ...(ref ? { branch: ref } : {}),

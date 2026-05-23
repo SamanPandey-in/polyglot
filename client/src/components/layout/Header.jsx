@@ -33,7 +33,7 @@ export default function Header({ isSidebarOpen, onSidebarToggle }) {
         <div className="flex size-7 items-center justify-center rounded-lg bg-gold/10 shadow-neu-inset border border-gold/20">
           <Code2 className="size-4 text-gold" />
         </div>
-        <span className="text-foreground tracking-tight">CodeGraph<span className="text-gold">AI</span></span>
+        <span className="text-foreground tracking-tight">PolyGlot</span>
       </Link>
 
       <div className="flex-1" />

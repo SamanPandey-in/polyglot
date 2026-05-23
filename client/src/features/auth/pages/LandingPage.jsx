@@ -32,7 +32,7 @@ export default function LandingPage() {
               <Code2 className="size-5 text-gold" />
             </div>
             <span className="font-display font-bold text-lg tracking-tight text-foreground">
-              CodeGraph<span className="text-gold">AI</span>
+              PolyGlot
             </span>
           </div>
           <div className="flex items-center gap-4">
@@ -58,7 +58,7 @@ export default function LandingPage() {
         </h1>
 
         <p className="mt-8 max-w-2xl text-lg text-muted-foreground leading-relaxed font-medium transition-all duration-700 animate-in fade-in slide-in-from-bottom-4 delay-300 fill-mode-both">
-          Point CodeGraph AI at any local repository. It parses every import,
+          Point PolyGlot at any local repository. It parses every import,
           builds a live dependency graph, and gives you a visual map you can
           actually navigate.
         </p>
@@ -97,7 +97,7 @@ export default function LandingPage() {
 
       <footer className="border-t border-border/10 py-10 text-center">
         <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground/40">
-          © {new Date().getFullYear()} CodeGraph AI · Advanced Parsing Engine
+          © {new Date().getFullYear()} PolyGlot · Advanced Parsing Engine
         </p>
       </footer>
     </div>

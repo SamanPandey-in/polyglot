@@ -65,32 +65,49 @@ function ImpactGroup({ title, nodes, config }) {
 }
 
 export default function ImpactPanel() {
-  const graphData = useSelector(selectGraphData);
+  const graphData      = useSelector(selectGraphData);
   const selectedNodeId = useSelector(selectSelectedNodeId);
-  const jobId = graphData?.jobId;
+  const jobId          = graphData?.jobId;
 
-  const [impact, setImpact] = useState(null);
+  const [impact,  setImpact]  = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error,   setError]   = useState('');
 
-  const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+  // BUG 2 FIX: use VITE_API_BASE_URL consistently — never hardcode localhost
+  const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 
   async function runImpact() {
     if (!jobId || !selectedNodeId) return;
 
     setLoading(true);
     setError('');
+    setImpact(null);
 
     try {
+      // BUG 2 FIX: credentials:'include' sends the httpOnly JWT cookie.
+      // Without this the request returns 401 silently on every call.
       const response = await fetch(
         `${apiBase}/api/graph/${jobId}/impact?node=${encodeURIComponent(selectedNodeId)}&hops=6`,
+        {
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        },
       );
 
       if (!response.ok) {
-        throw new Error(await response.text());
+        // BUG 10 FIX: parse JSON error body instead of showing raw HTML via response.text()
+        let msg = `Impact analysis failed (HTTP ${response.status})`;
+        try {
+          const body = await response.json();
+          if (body?.error) msg = body.error;
+        } catch {
+          // Non-JSON response — keep the generic message above
+        }
+        throw new Error(msg);
       }
 
-      setImpact(await response.json());
+      const data = await response.json();
+      setImpact(data);
     } catch (err) {
       setError(err.message || 'Impact analysis failed.');
     } finally {
@@ -116,7 +133,7 @@ export default function ImpactPanel() {
             {selectedNodeId}
           </div>
           <Button size="sm" onClick={runImpact} disabled={loading} className="gap-2">
-            {loading ? 'Analysing...' : 'Run Impact Analysis'}
+            {loading ? 'Analysing…' : 'Run Impact Analysis'}
             <Zap className="size-3" />
           </Button>
         </>
@@ -134,10 +151,16 @@ export default function ImpactPanel() {
           <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
             <GitBranch className="size-3" />
             <span>{impact.totalImpacted} total nodes impacted</span>
-            <span className="ml-auto opacity-50">via {impact.source}</span>
+            {impact.source && (
+              <span className="ml-auto opacity-50">via {impact.source}</span>
+            )}
           </div>
 
-          <ImpactGroup title={SEVERITY_CONFIG.direct.label} nodes={impact.direct} config={SEVERITY_CONFIG.direct} />
+          <ImpactGroup
+            title={SEVERITY_CONFIG.direct.label}
+            nodes={impact.direct}
+            config={SEVERITY_CONFIG.direct}
+          />
           <ImpactGroup
             title={SEVERITY_CONFIG.nearTransitive.label}
             nodes={impact.nearTransitive}

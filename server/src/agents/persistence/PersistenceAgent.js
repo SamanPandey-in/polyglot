@@ -1,22 +1,5 @@
 import { BaseAgent } from '../core/BaseAgent.js';
 import { scorePersistence } from '../core/confidence.js';
-import { pgPool } from '../../infrastructure/connections.js';
-
-function toJson(value, fallback) {
-  if (value === undefined || value === null) return JSON.stringify(fallback);
-  return JSON.stringify(value);
-}
-
-function toVectorLiteral(embedding) {
-  if (!Array.isArray(embedding) || embedding.length === 0) return null;
-
-  const normalized = embedding
-    .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value));
-
-  if (normalized.length === 0) return null;
-  return `[${normalized.join(',')}]`;
-}
 
 export class PersistenceAgent extends BaseAgent {
   agentId = 'persistence-agent';
@@ -25,299 +8,58 @@ export class PersistenceAgent extends BaseAgent {
 
   constructor({ db } = {}) {
     super();
-    this.db = db || pgPool;
+    this.db = db; // Legacy, kept for compatibility if needed elsewhere
   }
 
   async process(input, context) {
     const start = Date.now();
-    const errors = [];
-    const warnings = [];
-
     const jobId = input?.jobId || context?.jobId;
-    const graph = input?.graph || {};
-    const typedEdges = Array.isArray(input?.typedEdges) ? input.typedEdges : [];
-    const edges = Array.isArray(input?.edges) ? input.edges : [];
-    const functionNodes = input?.functionNodes || {};
-    const embeddings = input?.embeddings || {};
-    const enriched = input?.enriched || {};
-    const contracts = input?.contracts || {};
-    const topology = input?.topology || {};
 
     if (!jobId) {
       return this.buildResult({
-        jobId: context?.jobId,
+        jobId,
         status: 'failed',
         confidence: 0,
-        data: {},
         errors: [{ code: 400, message: 'PersistenceAgent requires a jobId.' }],
-        warnings,
-        metrics: {},
         processingTimeMs: Date.now() - start,
       });
     }
 
-    const deadCodeSet = new Set(Array.isArray(topology.deadCodeCandidates) ? topology.deadCodeCandidates : []);
-
-    const nodeEntries = Object.entries(graph);
-
-    const nodePaths = [];
-    const nodeTypes = [];
-    const nodeDeclarations = [];
-    const nodeMetrics = [];
-    const nodeSummaries = [];
-    const nodeDeadFlags = [];
-
-    for (const [filePath, node] of nodeEntries) {
-      nodePaths.push(filePath);
-      nodeTypes.push(node?.type || 'module');
-      nodeDeclarations.push(toJson(node?.declarations, []));
-      nodeMetrics.push(toJson(node?.metrics, {}));
-      nodeSummaries.push(enriched?.[filePath]?.summary || null);
-      nodeDeadFlags.push(deadCodeSet.has(filePath));
+    const { graphRepo } = context;
+    if (!graphRepo) {
+      return this.buildResult({
+        jobId,
+        status: 'failed',
+        confidence: 0,
+        errors: [{ code: 500, message: 'No graphRepo provided in context.' }],
+        processingTimeMs: Date.now() - start,
+      });
     }
 
-    const edgeSourcePaths = [];
-    const edgeTargetPaths = [];
-    const edgeTypes = [];
-
-    const edgesToPersist = typedEdges.length > 0 ? typedEdges : edges;
-
-    for (const edge of edgesToPersist) {
-      if (!edge?.source || !edge?.target) continue;
-      edgeSourcePaths.push(edge.source);
-      edgeTargetPaths.push(edge.target);
-      edgeTypes.push(edge.type || 'import');
-    }
-
-    const embeddingPaths = [];
-    const embeddingVectors = [];
-
-    for (const [filePath, vector] of Object.entries(embeddings)) {
-      const vectorLiteral = toVectorLiteral(vector);
-      if (!vectorLiteral) continue;
-
-      embeddingPaths.push(filePath);
-      embeddingVectors.push(vectorLiteral);
-    }
-
-    const functionNodePaths = [];
-    const functionNodeNames = [];
-    const functionNodeKinds = [];
-    const functionNodeCalls = [];
-    const functionNodeLocs = [];
-
-    for (const [filePath, declarations] of Object.entries(functionNodes)) {
-      if (!Array.isArray(declarations)) continue;
-
-      for (const declaration of declarations) {
-        if (!declaration?.name) continue;
-
-        functionNodePaths.push(filePath);
-        functionNodeNames.push(declaration.name);
-        functionNodeKinds.push(declaration.kind || 'function');
-        functionNodeCalls.push(toJson(Array.isArray(declaration.calls) ? declaration.calls : [], []));
-        functionNodeLocs.push(Number.isFinite(declaration.loc) ? Number(declaration.loc) : null);
-      }
-    }
-
-    const contractPaths = [];
-    const contractRoutes = [];
-    const contractEnvDeps = [];
-    const contractExtServices = [];
-    const contractCaching = [];
-
-    for (const [filePath, contract] of Object.entries(contracts)) {
-      contractPaths.push(filePath);
-      contractRoutes.push(toJson(contract?.routes, []));
-      contractEnvDeps.push(toJson(contract?.envDependencies, []));
-      contractExtServices.push(toJson(contract?.externalServices, []));
-      contractCaching.push(toJson(contract?.cachingPatterns, []));
-    }
-
-    const recordsAttempted =
-      nodePaths.length +
-      edgeSourcePaths.length +
-      embeddingPaths.length +
-      functionNodePaths.length +
-      contractPaths.length;
-    let recordsWritten = 0;
-
-    let client;
     try {
-      client = await this.db.connect();
-      await client.query('BEGIN');
+      // 1. Prepare persistence payload
+      const persistParams = {
+        jobId,
+        repositoryId: input?.repositoryId,
+        graph: input?.graph,
+        typedEdges: input?.typedEdges,
+        edges: input?.edges,
+        functionNodes: input?.functionNodes,
+        enriched: input?.enriched,
+        contracts: input?.contracts,
+        embeddings: input?.embeddings,
+        topology: input?.topology,
+      };
 
-      if (nodePaths.length > 0) {
-        const nodeResult = await client.query(
-          `
-            INSERT INTO graph_nodes (
-              job_id,
-              file_path,
-              file_type,
-              declarations,
-              metrics,
-              summary,
-              is_dead_code
-            )
-            SELECT
-              $1,
-              unnest($2::text[]),
-              unnest($3::text[]),
-              unnest($4::jsonb[]),
-              unnest($5::jsonb[]),
-              unnest($6::text[]),
-              unnest($7::boolean[])
-            ON CONFLICT (job_id, file_path) DO UPDATE
-            SET file_type = EXCLUDED.file_type,
-                declarations = EXCLUDED.declarations,
-                metrics = EXCLUDED.metrics,
-                summary = EXCLUDED.summary,
-                is_dead_code = EXCLUDED.is_dead_code
-          `,
-          [
-            jobId,
-            nodePaths,
-            nodeTypes,
-            nodeDeclarations,
-            nodeMetrics,
-            nodeSummaries,
-            nodeDeadFlags,
-          ],
-        );
+      // 2. Delegate to the repository implementation
+      await graphRepo.persistGraph(persistParams);
 
-        recordsWritten += nodeResult.rowCount || 0;
-      }
-
-      await client.query('SAVEPOINT after_nodes');
-
-      if (edgeSourcePaths.length > 0) {
-        const edgeResult = await client.query(
-          `
-            INSERT INTO graph_edges (
-              job_id,
-              source_path,
-              target_path,
-              edge_type
-            )
-            SELECT
-              $1,
-              unnest($2::text[]),
-              unnest($3::text[]),
-              unnest($4::text[])
-            ON CONFLICT (job_id, source_path, target_path, edge_type) DO NOTHING
-          `,
-          [jobId, edgeSourcePaths, edgeTargetPaths, edgeTypes],
-        );
-
-        recordsWritten += edgeResult.rowCount || 0;
-      }
-
-      await client.query('SAVEPOINT after_edges');
-
-      if (embeddingPaths.length > 0) {
-        const embeddingResult = await client.query(
-          `
-            INSERT INTO file_embeddings (
-              job_id,
-              file_path,
-              embedding
-            )
-            SELECT
-              $1,
-              t.file_path,
-              t.embedding::vector
-            FROM unnest($2::text[], $3::text[]) AS t(file_path, embedding)
-            ON CONFLICT (job_id, file_path) DO UPDATE
-            SET embedding = EXCLUDED.embedding
-          `,
-          [jobId, embeddingPaths, embeddingVectors],
-        );
-
-        recordsWritten += embeddingResult.rowCount || 0;
-      }
-
-      await client.query('SAVEPOINT after_embeddings');
-
-      if (functionNodePaths.length > 0) {
-        const functionNodeResult = await client.query(
-          `
-            INSERT INTO function_nodes (
-              job_id,
-              file_path,
-              name,
-              kind,
-              calls,
-              loc
-            )
-            SELECT
-              $1,
-              unnest($2::text[]),
-              unnest($3::text[]),
-              unnest($4::text[]),
-              unnest($5::jsonb[]),
-              unnest($6::integer[])
-            ON CONFLICT (job_id, file_path, name) DO UPDATE
-            SET kind = EXCLUDED.kind,
-                calls = EXCLUDED.calls,
-                loc = EXCLUDED.loc
-          `,
-          [
-            jobId,
-            functionNodePaths,
-            functionNodeNames,
-            functionNodeKinds,
-            functionNodeCalls,
-            functionNodeLocs,
-          ],
-        );
-
-        recordsWritten += functionNodeResult.rowCount || 0;
-      }
-
-      await client.query('SAVEPOINT after_function_nodes');
-
-      if (contractPaths.length > 0) {
-        const contractResult = await client.query(
-          `
-            INSERT INTO api_contracts (
-              job_id,
-              file_path,
-              routes,
-              env_deps,
-              ext_services,
-              caching
-            )
-            SELECT
-              $1,
-              unnest($2::text[]),
-              unnest($3::jsonb[]),
-              unnest($4::jsonb[]),
-              unnest($5::jsonb[]),
-              unnest($6::jsonb[])
-            ON CONFLICT (job_id, file_path) DO UPDATE
-            SET routes = EXCLUDED.routes,
-                env_deps = EXCLUDED.env_deps,
-                ext_services = EXCLUDED.ext_services,
-                caching = EXCLUDED.caching
-          `,
-          [
-            jobId,
-            contractPaths,
-            contractRoutes,
-            contractEnvDeps,
-            contractExtServices,
-            contractCaching,
-          ],
-        );
-
-        recordsWritten += contractResult.rowCount || 0;
-      }
-
-      await client.query('COMMIT');
-
+      // 3. Compute simple confidence score
+      // (Since logic is delegated, we assume success means high confidence here, 
+      // but in a production app we'd get granular metrics from the repo)
       const confidence = scorePersistence({
-        recordsAttempted,
-        recordsWritten,
+        recordsAttempted: Object.keys(persistParams.graph || {}).length,
+        recordsWritten: Object.keys(persistParams.graph || {}).length, 
       });
 
       return this.buildResult({
@@ -325,47 +67,23 @@ export class PersistenceAgent extends BaseAgent {
         status: 'success',
         confidence,
         data: {
-          written: {
-            nodes: nodePaths.length,
-            edges: edgeSourcePaths.length,
-            embeddings: embeddingPaths.length,
-            functionNodes: functionNodePaths.length,
-            contracts: contractPaths.length,
-          },
           durationMs: Date.now() - start,
+          mode: graphRepo.constructor.name,
         },
-        errors,
-        warnings,
         metrics: {
-          recordsAttempted,
-          recordsWritten,
+          nodeCount: Object.keys(persistParams.graph || {}).length,
         },
         processingTimeMs: Date.now() - start,
       });
     } catch (error) {
-      if (client) {
-        try {
-          await client.query('ROLLBACK');
-        } catch {
-          warnings.push('Rollback failed after persistence error.');
-        }
-      }
-
+      console.error('[PersistenceAgent] Storage error:', error.message);
       return this.buildResult({
         jobId,
         status: 'failed',
         confidence: 0,
-        data: {},
         errors: [{ code: error.statusCode || 500, message: error.message }],
-        warnings,
-        metrics: {
-          recordsAttempted,
-          recordsWritten,
-        },
         processingTimeMs: Date.now() - start,
       });
-    } finally {
-      if (client) client.release();
     }
   }
 }

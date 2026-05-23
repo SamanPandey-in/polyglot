@@ -1,0 +1,103 @@
+# docker-compose.yml
+# Optional FIX: Neo4j service added. Previously missing, causing local full-stack
+# start to fail for any job that triggers the Neo4j threshold.
+
+services:
+
+  # ── PostgreSQL with pgvector ──────────────────────────────────────────────
+  postgres:
+    image: ankane/pgvector
+    container_name: polyglot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB:       polyglot
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d polyglot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7
+    container_name: polyglot-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Neo4j Community Edition ───────────────────────────────────────────────
+  # Browser UI:    http://localhost:7474  (login: neo4j / devpassword)
+  # Bolt protocol: bolt://localhost:7687  (used by the driver)
+  neo4j:
+    image: neo4j:5.20-community
+    container_name: polyglot-neo4j
+    restart: unless-stopped
+    ports:
+      - "7474:7474"   # Browser UI
+      - "7687:7687"   # Bolt protocol
+    environment:
+      # Format: neo4j/<password>  — override NEO4J_PASSWORD in your .env
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-devpassword}
+      # Memory tuning — adjust for your machine (heap = 25-50% of RAM)
+      NEO4J_server_memory_heap_initial__size: "512m"
+      NEO4J_server_memory_heap_max__size:     "1G"
+      NEO4J_server_memory_pagecache__size:    "512m"
+      # Increase transaction timeout for large graph seeds
+      NEO4J_db_transaction_timeout:           "60s"
+    volumes:
+      - neo4jdata:/data
+      - neo4jlogs:/logs
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # ── Backend ───────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: polyglot-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy   # BUG 13 FIX: wait for Neo4j to be ready
+    environment:
+      DATABASE_URL:    postgres://postgres:postgres@postgres:5432/polyglot
+      REDIS_URL:       redis://redis:6379
+      # Neo4j — uses the internal Docker network hostname "neo4j"
+      NEO4J_URI:       bolt://neo4j:7687
+      NEO4J_USERNAME:  neo4j
+      NEO4J_PASSWORD:  ${NEO4J_PASSWORD:-devpassword}
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    command: >
+      sh -c "
+        until pg_isready -h postgres -p 5432; do sleep 1; done;
+        npm run migrate;
+        npm run dev
+      "
+
+volumes:
+  pgdata:
+  neo4jdata:
+  neo4jlogs:

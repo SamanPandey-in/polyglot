@@ -231,7 +231,7 @@ export default function AnalyzeFilePage() {
         path: fileState.data.path,
         content: editorValue,
         sha: fileState.data.sha,
-        message: `Update ${fileState.data.path} via CodeGraph AI editor`,
+        message: `Update ${fileState.data.path} via PolyGlot editor`,
       }),
     );
 

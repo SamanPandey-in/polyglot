@@ -114,7 +114,7 @@ class GitHubPRService {
 
     const timestamp = new Date().toISOString();
 
-    return `## 📊 CodeGraph Impact Analysis
+    return `## 📊 PolyGlot Impact Analysis
 
 **Generated:** ${timestamp}  
 **Status:** ✅ Analysis Complete
@@ -126,7 +126,7 @@ ${changedList}
 ${impactedList}
 
 ---
-🔗 [View Full Graph](${graphUrl || '#'}) | Powered by CodeGraph AI`;
+🔗 [View Full Graph](${graphUrl || '#'}) | Powered by PolyGlot`;
   }
 
   /**
@@ -184,7 +184,7 @@ ${impactedList}
   }
 
   /**
-   * Find existing CodeGraph comment on PR
+  * Find existing PolyGlot comment on PR
    * @param {string} owner - Repository owner
    * @param {string} repo - Repository name
    * @param {number} prNumber - Pull request number
@@ -197,7 +197,7 @@ ${impactedList}
 
     try {
       const response = await this.client.get(`/repos/${owner}/${repo}/issues/${prNumber}/comments`);
-      const comment = response.data.find((c) => c.body.includes('CodeGraph Impact Analysis'));
+      const comment = response.data.find((c) => c.body.includes('PolyGlot Impact Analysis'));
       return comment ? { id: comment.id } : null;
     } catch (err) {
       console.error('Failed to find existing comment:', err.message);
@@ -246,7 +246,7 @@ ${impactedList}
 
     try {
       const response = await this.client.post(`/repos/${owner}/${repo}/check-runs`, {
-        name: 'CodeGraph Impact Analysis',
+        name: 'PolyGlot Impact Analysis',
         head_sha: sha,
         status: 'completed',
         conclusion,

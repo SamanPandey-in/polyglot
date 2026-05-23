@@ -2,12 +2,24 @@ import jwt from 'jsonwebtoken';
 
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
+/**
+ * BUG 1 FIX: sameSite must be 'none' in production.
+ *
+ * Vercel (frontend) and Render (backend) are DIFFERENT domains — not subdomains.
+ * With sameSite:'lax' the browser refuses to send the JWT cookie on cross-origin
+ * requests, so every authenticated API call returns 401 silently.
+ *
+ * Rules:
+ *   - sameSite:'none' requires secure:true (HTTPS only)
+ *   - In development (localhost) sameSite:'lax' is fine — both run on localhost
+ */
 function buildCookieOptions() {
+  const isProd = process.env.NODE_ENV === 'production';
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    secure:   isProd,                      // required for sameSite:'none'
+    sameSite: isProd ? 'none' : 'lax',    // 'none' = cross-origin allowed in production
+    maxAge:   7 * 24 * 60 * 60 * 1000,   // 7 days
   };
 }
 
@@ -24,7 +36,6 @@ function signToken(user) {
     { expiresIn: process.env.JWT_EXPIRES_IN || '7d' },
   );
 }
-
 
 function setTokenCookie(res, token) {
   res.cookie('token', token, buildCookieOptions());
