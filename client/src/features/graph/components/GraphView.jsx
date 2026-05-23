@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import { Network } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import ReactFlow, {
   Background,
@@ -330,8 +331,13 @@ export default function GraphView() {
 
   if (nodes.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-        {emptyMessage}
+      <div className="flex h-full w-full items-center justify-center px-4">
+        <div className="max-w-xl text-center">
+          <Network className="mx-auto mb-3 size-8 text-muted-foreground" />
+          <div className="font-medium text-lg">No nodes found</div>
+          <p className="mt-2 text-sm text-muted-foreground">{emptyMessage}</p>
+          <p className="mt-2 text-sm text-muted-foreground">Check that the analyzed repository has parseable files. Supported file types include .js, .ts, .py, .go, or .rs files.</p>
+        </div>
       </div>
     );
   }
