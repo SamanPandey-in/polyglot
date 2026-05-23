@@ -233,7 +233,7 @@ Some text without proper diff format
 
       const comment = service.formatImpactComment(changed, impacted, graphUrl);
 
-      assert.match(comment, /CodeGraph Impact Analysis/);
+      assert.match(comment, /PolyGlot Impact Analysis/);
       assert.match(comment, /Changed Files \(2\)/);
       assert.match(comment, /Potentially Impacted Files \(3\)/);
       assert.match(comment, /src\/auth\.js/);

@@ -57,7 +57,7 @@ export default function SignupPage() {
               <Code2 className="size-5 text-gold" />
             </div>
             <span className="font-display font-black text-xl tracking-tight text-foreground">
-              CodeGraph<span className="text-gold">AI</span>
+              PolyGlot
             </span>
           </div>
 

@@ -15,7 +15,7 @@ afterEach(async () => {
 
 describe('GraphBuilderAgent', () => {
   it('builds file graph and keeps function-level nodes in output', async () => {
-    const rootDir = await mkdtemp(path.join(os.tmpdir(), 'codegraph-vitest-graph-'));
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), 'polyglot-vitest-graph-'));
     tempDirs.push(rootDir);
 
     const aFile = path.join(rootDir, 'src', 'a.js');

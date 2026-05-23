@@ -11,7 +11,7 @@
   const html = `
     <div class="container">
       <div class="header">
-        <h1>CodeGraph AI</h1>
+        <h1>PolyGlot</h1>
         <div class="controls">
           <button id="refreshBtn">Refresh</button>
           <button id="settingsBtn">Settings</button>

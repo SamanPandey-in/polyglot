@@ -1,6 +1,6 @@
 # 💎 Premium Gold/Neutral Design System (v2.0)
 
-This document defines the **Elite Aesthetic Standards** for the CodeGraph AI application. It is the single source of truth for maintaining a luxury, high-end visual identity using **Tailwind CSS v4**, **Glassmorphism**, and **Inward Neumorphism**.
+This document defines the **Elite Aesthetic Standards** for the PolyGlot application. It is the single source of truth for maintaining a luxury, high-end visual identity using **Tailwind CSS v4**, **Glassmorphism**, and **Inward Neumorphism**.
 
 ---
 

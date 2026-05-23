@@ -14,7 +14,7 @@ jobs:
         image: ankane/pgvector
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: codegraph_test
+          POSTGRES_DB: polyglot_test
         ports:
           - 5432:5432
       redis:
@@ -33,12 +33,12 @@ jobs:
         run: npm run migrate
         working-directory: server
         env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/codegraph_test
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/polyglot_test
       - name: Run Vitest unit tests
         run: npm run test:coverage
         working-directory: server
         env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/codegraph_test
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/polyglot_test
           REDIS_URL: redis://localhost:6379
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           JWT_SECRET: test_secret
@@ -46,7 +46,7 @@ jobs:
         run: npm test
         working-directory: server
         env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/codegraph_test
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/polyglot_test
           REDIS_URL: redis://localhost:6379
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           JWT_SECRET: test_secret

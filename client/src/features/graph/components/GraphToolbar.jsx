@@ -150,7 +150,7 @@ export default function GraphToolbar({ graphContainerId = 'graph-container' }) {
             <Code2 className="size-4" />
           </div>
           <span className="font-display font-black text-sm tracking-tight">
-            CodeGraph<span className="text-gold">AI</span>
+            PolyGlot
           </span>
         </div>
 

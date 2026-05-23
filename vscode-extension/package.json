@@ -1,9 +1,9 @@
 {
-  "name": "codegraph-ai",
-  "displayName": "CodeGraph AI",
+  "name": "polyglot",
+  "displayName": "Polyglot",
   "description": "Visualize your codebase dependencies and impact analysis directly in VS Code",
   "version": "0.0.1",
-  "publisher": "codegraph",
+  "publisher": "polyglot",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -17,23 +17,23 @@
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
-      {
-        "command": "codegraphAi.openGraph",
-        "title": "CodeGraph AI: Open Graph"
+        {
+        "command": "polyglot.openGraph",
+        "title": "Polyglot: Open Graph"
       }
     ],
     "configuration": {
-      "title": "CodeGraph AI",
+        "title": "Polyglot",
       "properties": {
-        "codegraphAi.serverUrl": {
+        "polyglot.serverUrl": {
           "type": "string",
           "default": "http://localhost:5000",
-          "description": "CodeGraph AI server URL"
+          "description": "Polyglot server URL"
         },
-        "codegraphAi.apiToken": {
+        "polyglot.apiToken": {
           "type": "string",
           "default": "",
-          "description": "JWT token for authentication with CodeGraph AI server"
+          "description": "JWT token for authentication with Polyglot server"
         }
       }
     }

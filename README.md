@@ -1,4 +1,4 @@
-# 🚀 codegraph-ai
+# 🚀 PolyGlot
 
 AI-powered codebase visualizer that maps dependencies, explains architecture, and answers natural language questions about your repository.
 
@@ -28,7 +28,7 @@ AI-powered codebase visualizer that maps dependencies, explains architecture, an
 # 📁 Project Structure
 
 ```
-codegraph-ai/
+polyglot/
 ├── client/        # Frontend SPA
 ├── server/        # Backend API
 ├── docker-compose.yml
@@ -96,7 +96,7 @@ docker compose down -v
 ## Run migration (only once)
 
 ```bash
-psql -h localhost -p 5433 -U postgres -d codegraph -f ./server/src/infrastructure/migrations/001_initial.sql
+psql -h localhost -p 5433 -U postgres -d polyglot -f ./server/src/infrastructure/migrations/001_initial.sql
 ```
 
 Password:
@@ -117,7 +117,7 @@ Inside pgAdmin:
 	- Port: 5433
 	- Username: postgres
 	- Password: postgres
-	- Database: codegraph
+	- Database: polyglot
 
 - Why host.docker.internal? Because pgAdmin runs inside a container, and:
 
@@ -139,7 +139,7 @@ Inside pgAdmin:
 Create `server/.env`:
 
 ```
-DATABASE_URL=postgres://postgres:postgres@postgres:5432/codegraph
+DATABASE_URL=postgres://postgres:postgres@postgres:5432/polyglot
 REDIS_URL=redis://redis:6379
 OPENAI_API_KEY=your_key_here
 ```
@@ -258,7 +258,7 @@ server {
 	listen 80;
 	server_name your-domain.com;
 
-	root /var/www/codegraph-ai/client/dist;
+	root /var/www/polyglot/client/dist;
 	index index.html;
 
 	location /api/ {
@@ -327,7 +327,7 @@ docker compose up -d --build
 ✔ Ensure backend uses:
 
 ```
-postgres://postgres:postgres@postgres:5432/codegraph
+postgres://postgres:postgres@postgres:5432/polyglot
 ```
 
 ---

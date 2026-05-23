@@ -107,7 +107,7 @@ async function pickWindowsDirectory() {
   const script = [
     'Add-Type -AssemblyName System.Windows.Forms',
     '$owner = New-Object System.Windows.Forms.Form',
-    "$owner.Text = 'CodeGraph Folder Picker'",
+    "$owner.Text = 'PolyGlot Folder Picker'",
     '$owner.TopMost = $true',
     '$owner.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen',
     '$owner.ShowInTaskbar = $false',

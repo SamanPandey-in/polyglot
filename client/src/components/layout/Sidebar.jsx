@@ -76,7 +76,7 @@ export default function Sidebar({
               </div>
               {!isCollapsed && (
                 <span className="font-display font-bold text-base tracking-tight text-foreground">
-                  CodeGraph<span className="text-gold">AI</span>
+                  PolyGlot
                 </span>
               )}
             </Link>

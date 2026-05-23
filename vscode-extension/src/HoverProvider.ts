@@ -18,15 +18,15 @@ export class HoverProvider implements vscode.HoverProvider {
       if (!node) return null;
 
       const markdown = new vscode.MarkdownString();
-      markdown.isTrusted = { enabledCommands: ['codegraphAi.openGraph'] };
-      markdown.appendMarkdown(`**CodeGraph AI** — \`${relativePath}\`\n\n`);
+      markdown.isTrusted = { enabledCommands: ['polyglot.openGraph'] };
+      markdown.appendMarkdown(`**PolyGlot** — \`${relativePath}\`\n\n`);
       if (node.summary) {
         markdown.appendText(node.summary);
         markdown.appendMarkdown('\n\n');
       }
       markdown.appendMarkdown(`- **Deps:** ${node.deps?.length || 0}  `);
       markdown.appendMarkdown(`**Used by:** ${Object.values(graph.graph).filter((n: any) => n.deps?.includes(relativePath)).length}\n\n`);
-      markdown.appendMarkdown(`[Open in Graph](command:codegraphAi.openGraph)`);
+      markdown.appendMarkdown(`[Open in Graph](command:polyglot.openGraph)`);
 
       return new vscode.Hover(markdown);
     } catch {
