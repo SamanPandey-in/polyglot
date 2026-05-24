@@ -1,6 +1,16 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { graphService } from '../services/graphService';
 
+const ACTIVE_GRAPH_TAB_KEY = 'activeGraphTab';
+const DEFAULT_ACTIVE_GRAPH_TAB = 'reactflow';
+
+function readStoredActiveGraphTab() {
+  if (typeof window === 'undefined') return DEFAULT_ACTIVE_GRAPH_TAB;
+
+  const storedValue = window.localStorage.getItem(ACTIVE_GRAPH_TAB_KEY);
+  return storedValue === 'cytoscape' ? 'cytoscape' : DEFAULT_ACTIVE_GRAPH_TAB;
+}
+
 function describeAnalysisTarget(analyzeConfig) {
   if (analyzeConfig?.source === 'local') {
     return analyzeConfig.localPath;
@@ -161,6 +171,7 @@ const graphSlice = createSlice({
     heatmapMode: false,
     heatmapHotspots: {},
     selectedNodeId: null,
+    activeGraphTab: readStoredActiveGraphTab(),
     status: 'idle',
     error: null,
   },
@@ -173,6 +184,9 @@ const graphSlice = createSlice({
     },
     selectNode(state, action) {
       state.selectedNodeId = action.payload;
+    },
+    setActiveGraphTab(state, action) {
+      state.activeGraphTab = action.payload === 'cytoscape' ? 'cytoscape' : DEFAULT_ACTIVE_GRAPH_TAB;
     },
     setHeatmapMode(state, action) {
       state.heatmapMode = Boolean(action.payload);
@@ -262,6 +276,7 @@ const graphSlice = createSlice({
 export const {
   updateAnalysisJob,
   selectNode,
+  setActiveGraphTab,
   setHeatmapMode,
   setHeatmapHotspots,
   clearGraph,
@@ -273,6 +288,7 @@ export const selectGraphStatus = (state) => state.graph.status;
 export const selectGraphError = (state) => state.graph.error;
 export const selectLastAnalyzeConfig = (state) => state.graph.lastAnalyzeConfig;
 export const selectSelectedNodeId = (state) => state.graph.selectedNodeId;
+export const selectActiveGraphTab = (state) => state.graph.activeGraphTab;
 export const selectHeatmapMode = (state) => state.graph.heatmapMode;
 export const selectHeatmapHotspots = (state) => state.graph.heatmapHotspots;
 

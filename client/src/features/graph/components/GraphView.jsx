@@ -343,7 +343,7 @@ export default function GraphView() {
   }
 
   return (
-    <div id="graph-container" className="relative flex-1 min-h-0">
+    <div className="relative flex-1 min-h-0">
       <ReactFlow
         nodes={nodes}
         edges={edges}

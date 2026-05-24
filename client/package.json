@@ -20,6 +20,8 @@
     "axios": "^1.13.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cytoscape": "^3.33.4",
+    "cytoscape-fcose": "^2.2.0",
     "dagre": "^0.8.5",
     "lucide-react": "^0.562.0",
     "prismjs": "^1.30.0",

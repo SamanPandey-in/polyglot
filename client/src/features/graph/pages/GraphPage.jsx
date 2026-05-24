@@ -4,13 +4,17 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import GraphToolbar from '../components/GraphToolbar';
+import GraphTabBar from '../components/GraphTabBar';
 import GraphView from '../components/GraphView';
+import CytoscapeGraphView from '../components/CytoscapeGraphView';
 import {
   loadSharedGraph,
   loadSavedGraph,
+  selectActiveGraphTab,
   selectGraphData,
   selectGraphError,
   selectGraphStatus,
+  setActiveGraphTab,
 } from '../slices/graphSlice';
 import { useToast } from '@/components/ui/toast';
 
@@ -27,8 +31,10 @@ export default function GraphPage() {
   const status = useSelector(selectGraphStatus);
   const error = useSelector(selectGraphError);
   const data = useSelector(selectGraphData);
+  const activeTab = useSelector(selectActiveGraphTab);
   const { addToast } = useToast();
   const lastNotifiedJobId = useRef(null);
+  const currentJobId = data?.jobId || null;
 
   const requestedJobId = useMemo(() => {
     const stateJobId = location.state?.jobId;
@@ -47,18 +53,18 @@ export default function GraphPage() {
     const isCurrentGraphShared = data?.rootDir === `shared:${shareToken}`;
     if (isCurrentGraphShared) return;
 
-    if (data?.jobId && !String(data.jobId).startsWith('shared:')) {
+    if (currentJobId && !String(currentJobId).startsWith('shared:')) {
       // Avoid replacing an existing private graph without explicit confirmation.
       if (!window.confirm('Load shared graph? This will replace your current view.')) return;
     }
 
     dispatch(loadSharedGraph({ token: shareToken }));
-  }, [data?.rootDir, dispatch, shareToken]);
+  }, [currentJobId, data?.rootDir, dispatch, shareToken]);
 
   useEffect(() => {
     if (shareToken) return;
     if (!requestedJobId) return;
-    if (data?.jobId === requestedJobId) return;
+    if (currentJobId === requestedJobId) return;
 
     dispatch(
       loadSavedGraph({
@@ -68,7 +74,7 @@ export default function GraphPage() {
         analyzedAt: location.state?.analyzedAt || null,
       }),
     );
-  }, [data?.jobId, dispatch, location.state, requestedJobId, shareToken]);
+  }, [currentJobId, dispatch, location.state, requestedJobId, shareToken]);
 
   useEffect(() => {
     if (status === 'succeeded' && data) {
@@ -95,7 +101,7 @@ export default function GraphPage() {
             title: 'Analysis complete',
             message: `Analysis complete — ${nodeCount} nodes, ${edgeCount} edges`,
           });
-        } catch (e) {
+        } catch {
           // ignore toast errors
         }
 
@@ -103,6 +109,11 @@ export default function GraphPage() {
       }
     }
   }, [status, data, addToast]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('activeGraphTab', activeTab);
+  }, [activeTab]);
 
   if (!data && status === 'loading') {
     return (
@@ -146,9 +157,18 @@ export default function GraphPage() {
     <div className="flex h-[calc(100vh-6.75rem)] flex-col gap-0.5">
       {status === 'succeeded' && data && (
         <section className="mx-auto mt-6 h-[calc(100vh-10rem)] w-full max-w-375 px-4 pb-4">
-          <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border/60 bg-card/40">
-            <GraphToolbar />
-            <GraphView />
+          <div id="graph-container" className="flex h-full flex-col overflow-hidden rounded-xl border border-border/60 bg-card/40">
+            <GraphToolbar graphContainerId="graph-container" />
+            <div className="border-b border-border/40 px-4 py-2">
+              <GraphTabBar
+                activeTab={activeTab}
+                onChange={(tabId) => dispatch(setActiveGraphTab(tabId))}
+              />
+            </div>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              {activeTab === 'reactflow' && <GraphView />}
+              {activeTab === 'cytoscape' && <CytoscapeGraphView />}
+            </div>
           </div>
         </section>
       )}
