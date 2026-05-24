@@ -4,7 +4,6 @@ import { useLocation } from 'react-router-dom';
 import {
   AlertCircle,
   CheckCircle2,
-  FolderOpen,
   Github,
   ArrowRight,
   Search,
@@ -18,6 +17,7 @@ import { useAuth } from '@/features/auth';
 import { setSelectedAnalyzeRepository } from '@/features/analyze';
 import { graphService } from '../services/graphService';
 import { analyzeCodebase, selectGraphStatus } from '../slices/graphSlice';
+import LocalRepoSection from './LocalRepoSection';
 
 function toErrorMessage(err, fallback) {
   const message = err?.response?.data?.error || err?.message || fallback;
@@ -112,15 +112,11 @@ export default function UploadRepoForm() {
 
   const [source, setSource] = useState('local');
 
-  const [localPath, setLocalPath] = useState('');
-  const [localValidationState, setLocalValidationState] = useState('idle');
-  const [localError, setLocalError] = useState('');
-  const [localBrowseLoading, setLocalBrowseLoading] = useState(false);
-  const [pickerCapabilitiesLoading, setPickerCapabilitiesLoading] = useState(true);
-  const [pickerCapabilities, setPickerCapabilities] = useState({
-    supported: false,
-    message: 'Checking folder picker availability...',
-  });
+  const initialLocalPath = useMemo(() => {
+    const reanalyzeConfig = location.state?.reanalyzeConfig;
+    if (!reanalyzeConfig || reanalyzeConfig.source !== 'local') return '';
+    return reanalyzeConfig.localPath || reanalyzeConfig.fullName || '';
+  }, [location.state?.reanalyzeConfig]);
 
   const [githubMode, setGitHubMode] = useState('public');
   const [publicRepoUrl, setPublicRepoUrl] = useState('');
@@ -153,21 +149,12 @@ export default function UploadRepoForm() {
     const { source: configSource, owner, repo, branch, fullName } = reanalyzeConfig;
 
     if (configSource === 'local') {
-      // Re-analyzing local repository
       setSource('local');
-      if (fullName) {
-        setLocalPath(fullName);
-        setLocalValidationState('idle');
-      }
     } else if (configSource === 'github' || configSource === 'github-owned' || configSource === 'github-public') {
-      // Re-analyzing GitHub repository
-      // Default to 'owned' mode since we have owner and repo available
       setSource('github');
       setGitHubMode('owned');
 
       if (owner && repo) {
-        // Pre-populate with the repo data
-        // This allows the form to show selected repo while still allowing branch selection
         setSelectedOwnedRepo({
           id: reanalyzeConfig.id,
           owner,
@@ -178,7 +165,6 @@ export default function UploadRepoForm() {
 
         if (branch) {
           setOwnedBranch(branch);
-          // Also populate ownedBranches with at least the current branch
           setOwnedBranches([{ name: branch, isDefault: true }]);
         }
       }
@@ -198,9 +184,7 @@ export default function UploadRepoForm() {
   }, [ownedRepos, repoQuery]);
 
   const canAnalyze = useMemo(() => {
-    if (source === 'local') {
-      return Boolean(localPath.trim()) && localValidationState !== 'loading';
-    }
+    if (source === 'local') return false;
 
     if (githubMode === 'public') {
       return Boolean(
@@ -220,8 +204,6 @@ export default function UploadRepoForm() {
     );
   }, [
     source,
-    localPath,
-    localValidationState,
     githubMode,
     publicRepoUrl,
     publicRepoInfo,
@@ -233,33 +215,6 @@ export default function UploadRepoForm() {
     ownedBranch,
     ownedBranchesLoading,
   ]);
-
-  const validateLocalRepository = async () => {
-    const trimmed = localPath.trim();
-    if (!trimmed) {
-      setLocalValidationState('idle');
-      setLocalError('');
-      return false;
-    }
-
-    setLocalValidationState('loading');
-    setLocalError('');
-
-    try {
-      await graphService.validateLocalPath(trimmed);
-      setLocalValidationState('succeeded');
-      return true;
-    } catch (err) {
-      setLocalValidationState('failed');
-      setLocalError(
-        toErrorMessage(
-          err,
-          'Local path validation failed. Please provide a valid repository path.',
-        ),
-      );
-      return false;
-    }
-  };
 
   const resolvePublicRepository = async () => {
     const trimmed = publicRepoUrl.trim();
@@ -376,41 +331,6 @@ export default function UploadRepoForm() {
   };
 
   useEffect(() => {
-    let mounted = true;
-
-    const loadPickerCapabilities = async () => {
-      setPickerCapabilitiesLoading(true);
-
-      try {
-        const data = await graphService.getLocalPickerCapabilities();
-        if (!mounted) return;
-        setPickerCapabilities({
-          supported: Boolean(data?.supported),
-          message:
-            data?.message ||
-            'Native folder picker is unavailable, paste an absolute path manually.',
-        });
-      } catch {
-        if (!mounted) return;
-        setPickerCapabilities({
-          supported: false,
-          message: 'Native folder picker is unavailable, paste an absolute path manually.',
-        });
-      } finally {
-        if (mounted) {
-          setPickerCapabilitiesLoading(false);
-        }
-      }
-    };
-
-    loadPickerCapabilities();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
     if (source !== 'github' || githubMode !== 'owned') return;
     if (!isAuthenticated) return;
     if (hasLoadedOwnedRepos || ownedReposLoading) return;
@@ -419,13 +339,6 @@ export default function UploadRepoForm() {
   }, [source, githubMode, isAuthenticated, hasLoadedOwnedRepos, ownedReposLoading]);
 
   const buildAnalyzePayload = () => {
-    if (source === 'local') {
-      return {
-        source: 'local',
-        localPath: localPath.trim(),
-      };
-    }
-
     if (githubMode === 'public') {
       return {
         source: 'github',
@@ -453,11 +366,6 @@ export default function UploadRepoForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (source === 'local') {
-      const valid = await validateLocalRepository();
-      if (!valid) return;
-    }
-
     if (source === 'github' && githubMode === 'public') {
       const resolved = await resolvePublicRepository();
       if (!resolved) return;
@@ -466,15 +374,6 @@ export default function UploadRepoForm() {
     if (source === 'github' && githubMode === 'owned' && !selectedOwnedRepo) {
       setOwnedReposError('Please select one of your repositories and a branch.');
       return;
-    }
-
-    if (source === 'local') {
-      dispatch(
-        setSelectedAnalyzeRepository({
-          source: 'local',
-          localPath: localPath.trim(),
-        }),
-      );
     }
 
     if (source === 'github' && githubMode === 'public' && publicRepoInfo) {
@@ -524,40 +423,6 @@ export default function UploadRepoForm() {
     }
   };
 
-  const browseLocalPath = async () => {
-    if (!pickerCapabilities.supported) {
-      setLocalError(pickerCapabilities.message);
-      return;
-    }
-
-    setLocalBrowseLoading(true);
-    setLocalError('');
-
-    try {
-      const result = await graphService.browseLocalPath();
-      if (!result?.path) return;
-
-      setLocalPath(result.path);
-      setLocalValidationState('idle');
-      setLocalError('');
-    } catch (err) {
-      const timedOut =
-        err?.code === 'ECONNABORTED' ||
-        err?.response?.status === 408;
-
-      setLocalError(
-        timedOut
-          ? 'Folder picker did not open in time. Please try Browse again. If it still fails, paste an absolute path manually.'
-          : toErrorMessage(
-            err,
-            'Could not open native folder picker. Please paste the absolute path manually.',
-          ),
-      );
-    } finally {
-      setLocalBrowseLoading(false);
-    }
-  };
-
   return (
     <div className="flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-16">
       <div className="mb-2 flex size-14 items-center justify-center rounded-2xl shadow-neu-inset border-none bg-background/50 animate-in zoom-in duration-700">
@@ -582,100 +447,15 @@ export default function UploadRepoForm() {
         />
 
         {source === 'local' && (
-          <div className="flex flex-col gap-4 rounded-2xl shadow-neu-inset border-none bg-background/40 p-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <Label htmlFor="project-path" className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground/70">Local repository path</Label>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <FolderOpen className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
-                <Input
-                  id="project-path"
-                  type="text"
-                  value={localPath}
-                  onChange={(e) => {
-                    setLocalPath(e.target.value);
-                    setLocalValidationState('idle');
-                    setLocalError('');
-                  }}
-                  onBlur={validateLocalRepository}
-                  placeholder="C:\\Users\\you\\your-project"
-                  className="pl-9 font-mono text-sm"
-                  disabled={isLoading}
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-              </div>
-
-              <Button
-                type="button"
-                variant="outline"
-                onClick={browseLocalPath}
-                className="rounded-xl shadow-neu-inset border-none bg-background/50 active-scale"
-                disabled={
-                  isLoading ||
-                  localBrowseLoading ||
-                  pickerCapabilitiesLoading ||
-                  !pickerCapabilities.supported
-                }
-              >
-                {localBrowseLoading ? (
-                  <>
-                    <Loader2 className="animate-spin" />
-                    Opening
-                  </>
-                ) : pickerCapabilitiesLoading ? (
-                  <>
-                    <Loader2 className="animate-spin" />
-                    Checking
-                  </>
-                ) : (
-                  'Browse'
-                )}
-              </Button>
-
-              <Button
-                type="button"
-                variant="outline"
-                onClick={validateLocalRepository}
-                className="rounded-xl shadow-neu-inset border-none bg-background/50 active-scale"
-                disabled={isLoading || localValidationState === 'loading' || !localPath.trim()}
-              >
-                {localValidationState === 'loading' ? (
-                  <>
-                    <Loader2 className="animate-spin" />
-                    Validating
-                  </>
-                ) : (
-                  'Validate'
-                )}
-              </Button>
-            </div>
-
-            {localValidationState === 'succeeded' && (
-              <p className="text-xs text-emerald-500 flex items-center gap-1.5">
-                <CheckCircle2 className="size-3.5" />
-                Local path is valid.
-              </p>
-            )}
-
-            {localValidationState === 'failed' && localError && (
-              <p className="text-xs text-destructive flex items-center gap-1.5">
-                <AlertCircle className="size-3.5" />
-                {localError}
-              </p>
-            )}
-
-            <p className="text-xs text-muted-foreground">
-              Use an absolute path. Browse opens a native folder picker and
-              fills the selected absolute path. If unavailable, paste the path
-              from your file explorer.
-            </p>
-
-            {!pickerCapabilitiesLoading && !pickerCapabilities.supported && (
-              <p className="text-xs text-muted-foreground">
-                {pickerCapabilities.message}
-              </p>
-            )}
-          </div>
+          <LocalRepoSection
+            key={initialLocalPath || 'local'}
+            disabled={isLoading}
+            initialPath={initialLocalPath}
+            onReady={(localPath) => {
+              dispatch(setSelectedAnalyzeRepository({ source: 'local', localPath }));
+              dispatch(analyzeCodebase({ source: 'local', localPath }));
+            }}
+          />
         )}
 
         {source === 'github' && (
@@ -921,24 +701,26 @@ export default function UploadRepoForm() {
           </div>
         )}
 
-        <Button
-          type="submit"
-          size="lg"
-          className="mt-6 h-14 w-full rounded-2xl bg-gold text-white shadow-xl hover:bg-gold/90 transition-all font-black uppercase tracking-widest text-xs active-scale"
-          disabled={isLoading || !canAnalyze}
-        >
-          {isLoading ? (
-            <>
-              <Loader2 className="mr-2 size-5 animate-spin" />
-              Analyzing Codebase...
-            </>
-          ) : (
-            <>
-              Analyze Codebase Structure
-              <ArrowRight className="ml-2 size-4" />
-            </>
-          )}
-        </Button>
+        {source !== 'local' && (
+          <Button
+            type="submit"
+            size="lg"
+            className="mt-6 h-14 w-full rounded-2xl bg-gold text-white shadow-xl hover:bg-gold/90 transition-all font-black uppercase tracking-widest text-xs active-scale"
+            disabled={isLoading || !canAnalyze}
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 size-5 animate-spin" />
+                Analyzing Codebase...
+              </>
+            ) : (
+              <>
+                Analyze Codebase Structure
+                <ArrowRight className="ml-2 size-4" />
+              </>
+            )}
+          </Button>
+        )}
       </form>
     </div>
   );
