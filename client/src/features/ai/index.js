@@ -14,6 +14,7 @@ export {
 export { aiService } from './services/aiService';
 export { default as QueryBar } from './components/QueryBar';
 export { default as QueryHistory } from './components/QueryHistory';
+export { default as ConversationHistory } from './components/ConversationHistory';
 export { default as ChatThread } from './components/ChatThread';
 export { default as ChatInput } from './components/ChatInput';
 export { default as SourceCitations } from './components/SourceCitations';

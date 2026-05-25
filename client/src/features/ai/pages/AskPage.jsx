@@ -5,6 +5,7 @@ import { AlertCircle, MessageSquareText, Network, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button';
 import { ChatInput, ChatThread, QueryHistory, initConversation } from '@/features/ai';
 import { useDispatch } from 'react-redux';
+import ConversationHistory from '../components/ConversationHistory';
 import { selectGraphData } from '@/features/graph';
 
 export default function AskPage() {
@@ -100,6 +101,9 @@ export default function AskPage() {
           </article>
 
           <aside className="min-h-0 rounded-2xl border border-border/60 bg-card/30 p-4 shadow-sm">
+            <div className="mb-3">
+              <ConversationHistory jobId={activeJobId} />
+            </div>
             <div className="mb-2 flex items-center gap-2">
               <MessageSquareText className="size-4 text-muted-foreground" />
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
