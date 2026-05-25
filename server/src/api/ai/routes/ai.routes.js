@@ -47,6 +47,25 @@ function writeSseEvent(res, payload) {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+function buildFallbackChatAnswer(question, contextFiles) {
+  const topFiles = Array.isArray(contextFiles) ? contextFiles.slice(0, 3) : [];
+
+  if (topFiles.length === 0) {
+    return [
+      'I could not reach the configured AI provider for this request.',
+      'The analysis data for this job did not yield enough retrieval context to synthesize a stronger answer locally.',
+      `Question: ${question}`,
+    ].join(' ');
+  }
+
+  return [
+    'I could not reach the configured AI provider, so here is a deterministic summary from the repository context.',
+    `Question: ${question}`,
+    'Most relevant files:',
+    ...topFiles.map((file) => `- ${file.file_path}: ${file.summary || 'No summary available.'}`),
+  ].join('\n');
+}
+
 const aiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: Number(process.env.AI_RATE_LIMIT_PER_MINUTE || 30),
@@ -761,10 +780,16 @@ router.post('/chat', async (req, res, next) => {
       await streamSession.consume();
     } catch (streamErr) {
       streamError = streamErr;
-      writeSseEvent(res, { type: 'error', message: streamErr.message || 'Streaming failed.' });
+      if (!clientClosed.value) {
+        console.warn('[chat] provider stream failed, using local fallback:', streamErr.message);
+      }
     }
 
-    if (!streamError && fullText && !clientClosed.value) {
+    if ((!fullText || streamError) && !clientClosed.value) {
+      fullText = buildFallbackChatAnswer(question, contextFiles);
+    }
+
+    if ((fullText || streamError) && !clientClosed.value) {
       const sourcePaths = contextFiles.map((file) => file.file_path);
 
       Promise.all([
@@ -783,7 +808,7 @@ router.post('/chat', async (req, res, next) => {
           text: fullText,
           sources: sourcePaths,
           conversationId: activeConversationId,
-          confidence: 'medium',
+          confidence: streamError ? 'low' : 'medium',
         })).catch(() => {}),
       ]).catch((error) => console.error('[chat] post-stream persistence error:', error));
 
@@ -791,7 +816,8 @@ router.post('/chat', async (req, res, next) => {
         type: 'done',
         sources: sourcePaths,
         conversationId: activeConversationId,
-        confidence: 'medium',
+        confidence: streamError ? 'low' : 'medium',
+        fallback: Boolean(streamError),
       });
     }
 
