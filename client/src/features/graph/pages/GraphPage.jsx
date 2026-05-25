@@ -5,7 +5,7 @@ import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import GraphToolbar from '../components/GraphToolbar';
 import GraphTabBar from '../components/GraphTabBar';
-import GraphView from '../components/GraphView';
+import FlowGraphView from '../components/FlowGraphView';
 import CytoscapeGraphView from '../components/CytoscapeGraphView';
 import {
   loadSharedGraph,
@@ -166,7 +166,7 @@ export default function GraphPage() {
               />
             </div>
             <div className="flex-1 min-h-0 overflow-hidden">
-              {activeTab === 'reactflow' && <GraphView />}
+              {activeTab === 'reactflow' && <FlowGraphView />}
               {activeTab === 'cytoscape' && <CytoscapeGraphView />}
             </div>
           </div>

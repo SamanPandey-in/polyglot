@@ -188,6 +188,14 @@ export default function CytoscapeGraphView() {
   );
 
   useEffect(() => {
+    if (!jobId) return;
+
+    layoutKeyRef.current = '';
+    setHiddenTypes(new Set());
+    setFilterQuery('');
+  }, [jobId, setFilterQuery, setHiddenTypes]);
+
+  useEffect(() => {
     selectedRef.current = selectedNodeId;
   }, [selectedNodeId]);
 

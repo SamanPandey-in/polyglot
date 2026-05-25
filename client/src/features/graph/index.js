@@ -1,7 +1,8 @@
 export { default as UploadRepoPage } from './pages/UploadRepoPage';
 export { default as GraphPage } from './pages/GraphPage';
 
-export { default as GraphView } from './components/GraphView';
+export { default as GraphView } from './components/FlowGraphView';
+export { default as FlowGraphView } from './components/FlowGraphView';
 export { default as GraphTabBar } from './components/GraphTabBar';
 export { default as CytoscapeGraphView } from './components/CytoscapeGraphView';
 export { default as LocalRepoSection } from './components/LocalRepoSection';
