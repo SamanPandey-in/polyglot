@@ -7,6 +7,7 @@ import { RelationshipExtractorAgent } from '../graph/RelationshipExtractorAgent.
 import { EnrichmentAgent } from '../enrichment/EnrichmentAgent.js';
 import { ContractInferenceAgent } from '../enrichment/ContractInferenceAgent.js';
 import { EmbeddingAgent } from '../embedding/EmbeddingAgent.js';
+import { FunctionChunker } from '../parser/FunctionChunker.js';
 import { PersistenceAgent } from '../persistence/PersistenceAgent.js';
 import { createGraphRepository } from '../../infrastructure/db/graphRepositoryFactory.js';
 // BUG 8 FIX: runMigrations() is NO LONGER called here — it runs in bootstrapGraphInfrastructure()
@@ -154,6 +155,19 @@ export class SupervisorAgent {
       );
       agentTrace.push(embeddingResult);
       Object.assign(pipelineData, embeddingResult.data);
+
+      try {
+        const chunker = new FunctionChunker();
+        const chunkStats = await chunker.run(jobId, {
+          functionNodes: pipelineData.functionNodes,
+          graph: pipelineData.graph,
+        });
+        this.logger?.info?.(
+          `[SupervisorAgent] FunctionChunker: ${chunkStats.succeeded}/${chunkStats.attempted} functions embedded`,
+        );
+      } catch (chunkErr) {
+        this.logger?.warn?.('[SupervisorAgent] FunctionChunker failed (non-fatal):', chunkErr.message);
+      }
 
       // BUG 7 FIX: Neo4jSeedAgent step REMOVED.
       // Neo4jGraphRepository.persistGraph() seeds Neo4j internally as part of step 10.
