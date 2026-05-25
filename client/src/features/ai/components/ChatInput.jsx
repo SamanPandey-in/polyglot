@@ -56,7 +56,7 @@ export default function ChatInput({ jobId: jobIdProp, placeholder }) {
         conversationId,
         signal: controller.signal,
         onChunk: (chunkText) => dispatch(appendStreamChunk({ text: chunkText })),
-        onDone: (event) => dispatch(finalizeStream({ conversationId: event.conversationId, sources: event.sources })),
+        onDone: (event = {}) => dispatch(finalizeStream({ conversationId: event.conversationId, sources: event.sources })),
         onError: (err) => dispatch(setStreamError({ message: err?.message || 'Chat failed.' })),
       });
     } catch (error) {

@@ -67,7 +67,7 @@ async function readSseStream(response, { onChunk, onDone, onError } = {}) {
         if (!payload) continue;
 
         if (payload === '[DONE]') {
-          onDone?.();
+          onDone?.({});
           return;
         }
 
@@ -98,7 +98,7 @@ async function readSseStream(response, { onChunk, onDone, onError } = {}) {
       }
     }
 
-    onDone?.();
+    onDone?.({});
   } finally {
     reader.releaseLock();
   }

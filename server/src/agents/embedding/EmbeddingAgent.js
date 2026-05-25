@@ -2,8 +2,6 @@ import { BaseAgent } from '../core/BaseAgent.js';
 import { scoreEmbedding } from '../core/confidence.js';
 import { createEmbeddingClient } from '../../services/ai/llmProvider.js';
 
-const DEFAULT_EMBEDDING_MODEL =
-  process.env.AI_EMBEDDING_MODEL || process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small';
 const EMBEDDING_BATCH_SIZE = 100;
 
 function formatDeclarationNames(declarations) {
@@ -38,7 +36,7 @@ export class EmbeddingAgent extends BaseAgent {
   constructor({ embeddingClient } = {}) {
     super();
     this.embeddingClient = embeddingClient || createEmbeddingClient();
-    this.model = DEFAULT_EMBEDDING_MODEL;
+    this.model = this.embeddingClient.model;
   }
 
   async process(input, context) {

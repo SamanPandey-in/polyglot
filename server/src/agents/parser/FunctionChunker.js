@@ -2,7 +2,6 @@ import { pgPool } from '../../infrastructure/connections.js';
 import { createEmbeddingClient } from '../../services/ai/llmProvider.js';
 
 const BATCH_SIZE = 50;
-const MODEL = process.env.AI_EMBEDDING_MODEL || process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small';
 
 function toVectorLiteral(embedding) {
   if (!Array.isArray(embedding) || embedding.length === 0) return null;
@@ -86,7 +85,7 @@ export class FunctionChunker {
       ].filter(Boolean).join('\n'));
 
       try {
-        const response = await this.embeddingClient.createEmbedding({ model: MODEL, input: texts });
+        const response = await this.embeddingClient.createEmbedding({ model: this.embeddingClient.model, input: texts });
         const vectors = Array.isArray(response?.data) ? response.data : [];
 
         for (let index = 0; index < batch.length; index += 1) {

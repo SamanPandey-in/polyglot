@@ -12,11 +12,12 @@ import { createChatClient, createEmbeddingClient } from '../../../services/ai/ll
 import { getAuthUser, resolveDatabaseUserId } from '../../../utils/authUser.js';
 
 const router = Router();
-const chatClient = createChatClient();
+const aiRouteProvider = process.env.AI_ROUTE_PROVIDER || 'gemini';
+const ragRouteProvider = process.env.AI_RAG_PROVIDER || 'gemini';
+const chatClient = createChatClient({ provider: aiRouteProvider });
 const defaultChatModel = chatClient.model;
-const embeddingClient = createEmbeddingClient();
-const DEFAULT_EMBEDDING_MODEL =
-  process.env.AI_EMBEDDING_MODEL || process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small';
+const embeddingClient = createEmbeddingClient({ provider: ragRouteProvider });
+const DEFAULT_EMBEDDING_MODEL = embeddingClient.model;
 
 // BUG 5 FIX: Redis cache for streamed explanations
 const STREAM_CACHE_TTL = 60 * 60; // 1 hour
@@ -264,7 +265,7 @@ router.post('/query', async (req, res, next) => {
     const userId = await resolveDatabaseUserId(authUser);
     if (!userId) return res.status(500).json({ error: 'Failed to resolve authenticated user.' });
 
-    const agent  = new QueryAgent({ db: pgPool, redis: redisClient });
+    const agent  = new QueryAgent({ db: pgPool, redis: redisClient, llmClient: chatClient, embeddingClient });
     const result = await agent.process({ question, jobId, userId }, { jobId });
 
     if (result.status === 'failed') {
