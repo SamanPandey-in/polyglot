@@ -222,6 +222,122 @@ export class Neo4jGraphRepository extends IGraphRepository {
   }
 
   // ── healthCheck ───────────────────────────────────────────────────────────
+  async getContextForQuery(jobId, seedPaths, { maxFiles = 12, seedLimit = 5 } = {}) {
+    if (!Array.isArray(seedPaths) || seedPaths.length === 0) return [];
+
+    const seeds = seedPaths.slice(0, seedLimit).filter(Boolean);
+    if (seeds.length === 0) return [];
+
+    return this._withSession(async (session) => {
+      const seedResult = await session.run(
+        `MATCH (f:CodeFile { jobId: $jobId })
+         WHERE f.path IN $seeds
+         RETURN f.path AS path, f.type AS type, f.language AS language`,
+        { jobId, seeds },
+      );
+
+      const contextMap = new Map();
+      for (const rec of seedResult.records) {
+        const path = rec.get('path');
+        contextMap.set(path, {
+          filePath: path,
+          fileType: rec.get('type') || 'module',
+          summary: null,
+          declarations: [],
+          relationships: [],
+          distance: 0,
+        });
+      }
+
+      const relResult = await session.run(
+        `MATCH (src:CodeFile { jobId: $jobId })-[r]->(tgt { jobId: $jobId })
+         WHERE src.path IN $seeds
+           AND type(r) IN ['IMPORTS','CALLS','EXPOSES_API','CONSUMES_API',
+                           'USES_TABLE','USES_FIELD','EMITS_EVENT','LISTENS_EVENT']
+         RETURN src.path AS srcPath,
+                coalesce(tgt.path, tgt.filePath, tgt.name) AS tgtPath,
+                type(r) AS relType,
+                labels(tgt) AS tgtLabels,
+                tgt.type AS tgtType
+         LIMIT 100`,
+        { jobId, seeds },
+      );
+
+      const neighbourPaths = new Set();
+      const relationshipsByFile = new Map();
+
+      for (const rec of relResult.records) {
+        const srcPath = rec.get('srcPath');
+        const tgtPath = rec.get('tgtPath');
+        const relType = rec.get('relType');
+
+        if (!relationshipsByFile.has(srcPath)) {
+          relationshipsByFile.set(srcPath, []);
+        }
+
+        if (tgtPath) {
+          relationshipsByFile.get(srcPath).push({ type: relType, target: tgtPath });
+          if (typeof tgtPath === 'string' && tgtPath !== srcPath) {
+            neighbourPaths.add(tgtPath);
+          }
+        }
+      }
+
+      for (const [path, relationships] of relationshipsByFile) {
+        if (contextMap.has(path)) {
+          contextMap.get(path).relationships = relationships;
+        }
+      }
+
+      const newNeighbours = [...neighbourPaths].filter((path) => !contextMap.has(path));
+      if (newNeighbours.length > 0) {
+        const neighbourResult = await session.run(
+          `MATCH (f:CodeFile { jobId: $jobId })
+           WHERE f.path IN $paths
+           RETURN f.path AS path, f.type AS type`,
+          { jobId, paths: newNeighbours },
+        );
+
+        for (const rec of neighbourResult.records) {
+          const path = rec.get('path');
+          contextMap.set(path, {
+            filePath: path,
+            fileType: rec.get('type') || 'module',
+            summary: null,
+            declarations: [],
+            relationships: [],
+            distance: 1.0,
+          });
+        }
+      }
+
+      const allPaths = [...contextMap.keys()];
+      if (allPaths.length > 0) {
+        const pgResult = await this.pgRepo.pgPool.query(
+          `SELECT file_path, file_type, summary, declarations
+           FROM graph_nodes
+           WHERE job_id = $1 AND file_path = ANY($2)`,
+          [jobId, allPaths],
+        );
+
+        for (const row of pgResult.rows) {
+          const entry = contextMap.get(row.file_path);
+          if (!entry) continue;
+
+          entry.summary = row.summary || null;
+          entry.declarations = Array.isArray(row.declarations) ? row.declarations : [];
+          if (!entry.fileType || entry.fileType === 'module') {
+            entry.fileType = row.file_type || entry.fileType;
+          }
+        }
+      }
+
+      return [...contextMap.values()]
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, maxFiles);
+    }, { write: false });
+  }
+
   async healthCheck() {
     try {
       await this.driver.verifyConnectivity();

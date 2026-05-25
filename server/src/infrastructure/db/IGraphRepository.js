@@ -53,4 +53,20 @@ export class IGraphRepository {
   async deleteJob(jobId) {
     throw new Error('Method deleteJob() must be implemented');
   }
+
+  /**
+   * Returns enriched context for RAG retrieval.
+   *
+   * Given a set of seed file paths from vector search, returns those files plus
+   * their immediate graph neighbours, enriched with relationship metadata.
+   *
+   * @param {string} jobId
+   * @param {string[]} seedPaths
+   * @param {object} [options]
+   * @param {number} [options.maxFiles=12]
+   * @param {number} [options.seedLimit=5]
+   */
+  async getContextForQuery(jobId, seedPaths, options) {
+    throw new Error('Method getContextForQuery() must be implemented');
+  }
 }

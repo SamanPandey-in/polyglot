@@ -24,7 +24,7 @@ export default function LocalRepoSection({ disabled, initialPath = '', onReady }
   const [browseState, setBrowseState] = useState('idle');
   const [browseError, setBrowseError] = useState('');
   const [pickerSupported, setPickerSupported] = useState(false);
-  const [pickerMessage, setPickerMessage] = useState('Checking folder picker availability...');
+  const [pickerMessage, setPickerMessage] = useState('');
   const [submitState, setSubmitState] = useState('idle');
   const [submitError, setSubmitError] = useState('');
 
@@ -43,6 +43,7 @@ export default function LocalRepoSection({ disabled, initialPath = '', onReady }
   useEffect(() => {
     let alive = true;
 
+    setPickerMessage('Checking folder picker availability...');
     graphService.getLocalPickerCapabilities()
       .then((data) => {
         if (!alive) return;
@@ -96,6 +97,7 @@ export default function LocalRepoSection({ disabled, initialPath = '', onReady }
     try {
       const result = await graphService.browseLocalPath();
       if (!result?.path) {
+        // User cancelled the native picker.
         setBrowseState('idle');
         return;
       }
@@ -106,8 +108,29 @@ export default function LocalRepoSection({ disabled, initialPath = '', onReady }
       setBrowseState('idle');
       inputRef.current?.focus();
     } catch (error) {
+      const status = error?.response?.status;
+      const serverMessage = error?.response?.data?.error || error?.message || '';
+
+      if (status === 400 || serverMessage.toLowerCase().includes('cancel')) {
+        setBrowseState('idle');
+        return;
+      }
+
+      if (status === 408 || error?.code === 'ECONNABORTED') {
+        setBrowseState('failed');
+        setBrowseError('Folder picker timed out. Please paste the path manually.');
+        return;
+      }
+
+      if (status === 501) {
+        setBrowseState('idle');
+        setPickerSupported(false);
+        setPickerMessage(serverMessage || 'Native folder picker unavailable, paste an absolute path manually.');
+        return;
+      }
+
       setBrowseState('failed');
-      setBrowseError(error?.response?.data?.error || error?.message || 'Could not open native folder picker.');
+      setBrowseError(serverMessage || 'Could not open native folder picker.');
     }
   }, [disabled, pickerSupported]);
 
@@ -191,12 +214,17 @@ export default function LocalRepoSection({ disabled, initialPath = '', onReady }
             onClick={handleBrowse}
             disabled={isBusy || !pickerSupported}
             className="shrink-0 rounded-xl shadow-neu-inset border-none bg-background/50 active-scale"
-            title={pickerSupported ? 'Open native folder picker' : pickerMessage}
+            title={pickerSupported ? 'Open native folder picker' : pickerMessage || 'Native folder picker unavailable'}
           >
             {browseState === 'loading' ? (
               <>
                 <Loader2 className="animate-spin" />
                 Opening
+              </>
+            ) : pickerMessage === 'Checking folder picker availability...' ? (
+              <>
+                <Loader2 className="animate-spin" size={14} />
+                Browse
               </>
             ) : (
               <>

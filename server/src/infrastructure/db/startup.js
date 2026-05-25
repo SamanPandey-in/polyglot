@@ -1,6 +1,70 @@
+import path from 'path';
+import { promises as fs } from 'fs';
+import { fileURLToPath } from 'url';
 import { pgPool } from '../connections.js';
 import { getNeo4jDriver } from './neo4jDriver.js';
 import { runMigrations } from './migrate.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PG_MIGRATIONS_DIR = path.join(__dirname, '../migrations');
+
+async function runPostgresMigrations() {
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS _pg_migrations (
+      filename TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  let files;
+  try {
+    files = (await fs.readdir(PG_MIGRATIONS_DIR))
+      .filter((file) => file.endsWith('.sql'))
+      .sort();
+  } catch {
+    console.log('[PostgresMigration] No migrations directory found; skipping.');
+    return;
+  }
+
+  for (const filename of files) {
+    const check = await pgPool.query(
+      `SELECT 1 FROM _pg_migrations WHERE filename = $1`,
+      [filename],
+    );
+    if (check.rowCount > 0) {
+      console.log(`[PostgresMigration] Skipping ${filename} (already applied)`);
+      continue;
+    }
+
+    console.log(`[PostgresMigration] Applying ${filename}...`);
+    const sql = await fs.readFile(path.join(PG_MIGRATIONS_DIR, filename), 'utf8');
+
+    try {
+      await pgPool.query(sql);
+      await pgPool.query(
+        `INSERT INTO _pg_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`,
+        [filename],
+      );
+      console.log(`[PostgresMigration] Applied ${filename}`);
+    } catch (error) {
+      if (
+        !error.message?.includes('already exists') &&
+        !error.message?.includes('duplicate key')
+      ) {
+        console.error(`[PostgresMigration] Failed ${filename}:`, error.message);
+        throw error;
+      }
+
+      console.log(`[PostgresMigration] Marking ${filename} applied after idempotent conflict: ${error.message.split('\n')[0]}`);
+      await pgPool.query(
+        `INSERT INTO _pg_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`,
+        [filename],
+      ).catch(() => {});
+    }
+  }
+
+  console.log('[PostgresMigration] All SQL migrations complete.');
+}
 
 /**
  * Bootstraps all graph infrastructure at server startup.
@@ -24,6 +88,13 @@ export async function bootstrapGraphInfrastructure() {
   }
 
   // ── Neo4j (optional) ──────────────────────────────────────────────────────
+  try {
+    await runPostgresMigrations();
+  } catch (error) {
+    console.error('[GraphInfrastructure] Postgres migration FAILED:', error.message);
+    throw error;
+  }
+
   if (!process.env.NEO4J_URI) {
     console.log('[GraphInfrastructure] NEO4J_URI not set — Neo4j disabled, using Postgres only');
     return;

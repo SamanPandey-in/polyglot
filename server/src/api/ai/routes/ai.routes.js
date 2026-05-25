@@ -3,10 +3,11 @@ import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import rateLimit from 'express-rate-limit';
 import { QueryAgent } from '../../../agents/query/QueryAgent.js';
-import { GraphRagExpander } from '../../../agents/query/GraphRagExpander.js';
+import { ChatAgent } from '../../../agents/query/ChatAgent.js';
 import { AnalysisAgent } from '../../../agents/analysis/AnalysisAgent.js';
 import { SnippetAnalyzerAgent } from '../../../agents/analysis/SnippetAnalyzerAgent.js';
 import { pgPool, redisClient } from '../../../infrastructure/connections.js';
+import { createGraphRepository } from '../../../infrastructure/db/graphRepositoryFactory.js';
 import { requirePlan } from '../../../middleware/planGuard.middleware.js';
 import { createChatClient, createEmbeddingClient } from '../../../services/ai/llmProvider.js';
 import { getAuthUser, resolveDatabaseUserId } from '../../../utils/authUser.js';
@@ -17,7 +18,6 @@ const ragRouteProvider = process.env.AI_RAG_PROVIDER || 'gemini';
 const chatClient = createChatClient({ provider: aiRouteProvider });
 const defaultChatModel = chatClient.model;
 const embeddingClient = createEmbeddingClient({ provider: ragRouteProvider });
-const DEFAULT_EMBEDDING_MODEL = embeddingClient.model;
 
 // BUG 5 FIX: Redis cache for streamed explanations
 const STREAM_CACHE_TTL = 60 * 60; // 1 hour
@@ -36,35 +36,8 @@ function toSafePositiveInt(value) {
   return Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
-function toVectorLiteral(vector) {
-  if (!Array.isArray(vector) || vector.length === 0) return null;
-
-  const normalized = vector.map((value) => Number(value)).filter((value) => Number.isFinite(value));
-  if (normalized.length === 0) return null;
-  return `[${normalized.join(',')}]`;
-}
-
 function writeSseEvent(res, payload) {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
-}
-
-function buildFallbackChatAnswer(question, contextFiles) {
-  const topFiles = Array.isArray(contextFiles) ? contextFiles.slice(0, 3) : [];
-
-  if (topFiles.length === 0) {
-    return [
-      'I could not reach the configured AI provider for this request.',
-      'The analysis data for this job did not yield enough retrieval context to synthesize a stronger answer locally.',
-      `Question: ${question}`,
-    ].join(' ');
-  }
-
-  return [
-    'I could not reach the configured AI provider, so here is a deterministic summary from the repository context.',
-    `Question: ${question}`,
-    'Most relevant files:',
-    ...topFiles.map((file) => `- ${file.file_path}: ${file.summary || 'No summary available.'}`),
-  ].join('\n');
 }
 
 const aiLimiter = rateLimit({
@@ -509,6 +482,7 @@ router.post('/snippet-impact', async (req, res, next) => {
 });
 
 // ── POST /chat ──────────────────────────────────────────────────────────────
+// Active Ask endpoint: ChatAgent owns codebase RAG, graph expansion, history, persistence, and caching.
 router.post('/chat', async (req, res, next) => {
   const authUser = getAuthUser(req);
   if (!authUser?.id) return res.status(401).json({ error: 'Authentication required.' });
@@ -534,291 +508,68 @@ router.post('/chat', async (req, res, next) => {
     return res.status(503).json({ error: 'Embedding provider is not configured.' });
   }
 
-  const cacheKey = `chat:${jobId}:${conversationId || 'new'}:${crypto.createHash('sha256').update(question).digest('hex')}`;
-  const clientClosed = { value: false };
-  let streamSession = null;
-
-  const closeStream = () => {
-    streamSession?.cancel?.();
-  };
-
+  let clientClosed = false;
   req.on('close', () => {
-    clientClosed.value = true;
-    closeStream();
+    clientClosed = true;
   });
+
+  res.status(200);
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
 
   try {
     const userId = await resolveDatabaseUserId(authUser);
-    if (!userId) return res.status(500).json({ error: 'Failed to resolve authenticated user.' });
+    if (!userId) {
+      writeSseEvent(res, { type: 'error', message: 'Failed to resolve authenticated user.' });
+      return res.end();
+    }
 
     const ownership = await pgPool.query(
-      `SELECT 1 FROM analysis_jobs WHERE id = $1 AND user_id = $2 LIMIT 1`,
+      `SELECT db_type FROM analysis_jobs WHERE id = $1 AND user_id = $2 LIMIT 1`,
       [jobId, userId],
     );
+
     if (ownership.rowCount === 0) {
-      return res.status(404).json({ error: 'Analysis job not found for this user.' });
-    }
-
-    const cached = await redisClient.get(cacheKey).catch(() => null);
-    if (cached) {
-      let parsed = null;
-      try {
-        parsed = JSON.parse(cached);
-      } catch {
-        parsed = null;
-      }
-
-      if (parsed) {
-      res.status(200);
-      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-      res.setHeader('Cache-Control', 'no-cache, no-transform');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('X-Cache', 'HIT');
-      if (typeof res.flushHeaders === 'function') res.flushHeaders();
-      writeSseEvent(res, { type: 'chunk', text: parsed.text || '' });
-      writeSseEvent(res, {
-        type: 'done',
-        sources: Array.isArray(parsed.sources) ? parsed.sources : [],
-        conversationId: parsed.conversationId || null,
-        confidence: parsed.confidence || 'medium',
-        cached: true,
-      });
+      writeSseEvent(res, { type: 'error', message: 'Analysis job not found.' });
       return res.end();
-      }
     }
 
-    let activeConversationId = conversationId;
-    if (activeConversationId) {
-      const conversationCheck = await pgPool.query(
-        `SELECT 1 FROM conversations WHERE id = $1 AND user_id = $2 AND job_id = $3 LIMIT 1`,
-        [activeConversationId, userId, jobId],
-      );
-      if (conversationCheck.rowCount === 0) activeConversationId = null;
-    }
-
-    if (!activeConversationId) {
-      const createdConversation = await pgPool.query(
-        `
-          INSERT INTO conversations (user_id, job_id, title)
-          VALUES ($1, $2, $3)
-          RETURNING id
-        `,
-        [userId, jobId, question.slice(0, 80)],
-      );
-      activeConversationId = createdConversation.rows[0]?.id || null;
-    }
-
-    const historyResult = await pgPool.query(
-      `
-        SELECT role, content
-        FROM (
-          SELECT role, content, created_at
-          FROM conversation_messages
-          WHERE conversation_id = $1
-          ORDER BY created_at DESC
-          LIMIT $2
-        ) AS recent_messages
-        ORDER BY created_at ASC
-      `,
-      [activeConversationId, historyLimit * 2],
+    const dbType = ownership.rows[0]?.db_type || 'postgres';
+    const graphRepo = createGraphRepository(
+      dbType === 'neo4j' ? { nodeCount: 9999 } : {},
+      dbType === 'neo4j' ? { forceNeo4j: true } : { forcePostgres: true },
     );
 
-    const history = historyResult.rows.map((row) => ({ role: row.role, content: row.content }));
-
-    let contextFiles = [];
-    const embeddingResponse = await embeddingClient.createEmbedding({
-      model: DEFAULT_EMBEDDING_MODEL,
-      input: question,
+    const agent = new ChatAgent({
+      graphRepo,
+      db: pgPool,
+      redis: redisClient,
+      llmClient: chatClient,
+      embeddingClient,
     });
-    const vectorLiteral = toVectorLiteral(embeddingResponse?.data?.[0]?.embedding);
 
-    if (vectorLiteral) {
-      const semanticResult = await pgPool.query(
-        `
-          SELECT
-            fe.file_path,
-            fe.embedding <=> $1::vector AS distance,
-            gn.file_type,
-            gn.declarations,
-            gn.summary
-          FROM file_embeddings fe
-          JOIN graph_nodes gn
-            ON gn.job_id = fe.job_id AND gn.file_path = fe.file_path
-          WHERE fe.job_id = $2
-          ORDER BY fe.embedding <=> $1::vector
-          LIMIT 20
-        `,
-        [vectorLiteral, jobId],
-      );
+    const result = await agent.process({
+      question,
+      jobId,
+      userId,
+      conversationId,
+      historyLimit,
+      onToken: (text) => {
+        if (!clientClosed) writeSseEvent(res, { type: 'chunk', text });
+      },
+    }, { jobId });
 
-      const candidates = Array.isArray(semanticResult.rows) ? semanticResult.rows : [];
-      const seedPaths = candidates.slice(0, 5).map((row) => row.file_path);
-      const expander = new GraphRagExpander(pgPool);
-      const expandedPaths = await expander.expand(seedPaths, jobId, { maxExpanded: 12 });
-      const candidateMap = new Map(candidates.map((row) => [row.file_path, row]));
-      const missingPaths = expandedPaths.filter((path) => !candidateMap.has(path));
-
-      if (missingPaths.length > 0) {
-        const expandedResult = await pgPool.query(
-          `
-            SELECT file_path, file_type, declarations, summary, 1.0 AS distance
-            FROM graph_nodes
-            WHERE job_id = $1 AND file_path = ANY($2)
-          `,
-          [jobId, missingPaths],
-        );
-
-        for (const row of expandedResult.rows) {
-          candidateMap.set(row.file_path, row);
-        }
-      }
-
-      const orderedCandidates = expandedPaths
-        .map((path) => candidateMap.get(path))
-        .filter(Boolean);
-
-      const queryTokens = question
-        .toLowerCase()
-        .replace(/[^a-z0-9_\-/\s]+/g, ' ')
-        .split(/\s+/)
-        .filter((token) => token.length >= 2);
-
-      contextFiles = orderedCandidates
-        .map((candidate, index) => {
-          const declarationNames = Array.isArray(candidate.declarations)
-            ? candidate.declarations.map((entry) => entry?.name).filter(Boolean).join(' ')
-            : '';
-
-          const haystack = [candidate.file_path, candidate.file_type, candidate.summary, declarationNames]
-            .filter(Boolean)
-            .join(' ')
-            .toLowerCase();
-
-          const hits = queryTokens.filter((token) => haystack.includes(token)).length;
-          const keywordScore = queryTokens.length ? hits / queryTokens.length : 0;
-          const semanticScore = 1 - Math.min(1, Math.max(0, Number(candidate.distance || 0)));
-          const positionBoost = (20 - index) / 20;
-
-          return { ...candidate, _score: keywordScore * 0.5 + semanticScore * 0.35 + positionBoost * 0.15 };
-        })
-        .sort((a, b) => b._score - a._score)
-        .slice(0, 12);
-
-      const fnResult = await pgPool.query(
-        `
-          SELECT file_path, function_name, body_summary, embedding <=> $1::vector AS distance
-          FROM function_embeddings
-          WHERE job_id = $2
-          ORDER BY embedding <=> $1::vector
-          LIMIT 6
-        `,
-        [vectorLiteral, jobId],
-      );
-
-      const highScoringFiles = new Set(
-        fnResult.rows
-          .filter((row) => Number(row.distance) < 0.35)
-          .map((row) => row.file_path),
-      );
-
-      contextFiles.sort((a, b) => {
-        const aBoost = highScoringFiles.has(a.file_path) ? 1 : 0;
-        const bBoost = highScoringFiles.has(b.file_path) ? 1 : 0;
-        if (bBoost !== aBoost) return bBoost - aBoost;
-        return b._score - a._score;
-      });
-    }
-
-    const contextBlock = contextFiles.length
-      ? contextFiles.map((file, index) => {
-          const exports = Array.isArray(file.declarations)
-            ? file.declarations.map((entry) => entry?.name).filter(Boolean).slice(0, 8).join(', ')
-            : '';
-          return `[Context ${index + 1}] ${file.file_path} (${file.file_type || 'module'})\nSummary: ${file.summary || 'N/A'}\nExports: ${exports || 'none'}`;
-        }).join('\n\n')
-      : 'No relevant files found in the codebase for this question.';
-
-    const systemPrompt = [
-      'You are an expert codebase architect assistant with deep knowledge of software design.',
-      'Answer the user\'s question using ONLY the provided codebase context.',
-      'Be specific: reference actual file paths and function names from the context.',
-      'If the context is insufficient to answer confidently, say so clearly.',
-      'Format your response in plain text. Do not use markdown unless showing a short code snippet.',
-      '',
-      '=== CODEBASE CONTEXT ===',
-      contextBlock,
-    ].join('\n');
-
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      ...history,
-      { role: 'user', content: question },
-    ];
-
-    res.status(200);
-    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    if (typeof res.flushHeaders === 'function') res.flushHeaders();
-
-    let fullText = '';
-    let streamError = null;
-
-    try {
-      streamSession = await chatClient.createStream({
-        model: defaultChatModel,
-        maxTokens: 800,
-        messages,
-        onText: (text) => {
-          if (!clientClosed.value) {
-            writeSseEvent(res, { type: 'chunk', text });
-            fullText += text;
-          }
-        },
-      });
-
-      await streamSession.consume();
-    } catch (streamErr) {
-      streamError = streamErr;
-      if (!clientClosed.value) {
-        console.warn('[chat] provider stream failed, using local fallback:', streamErr.message);
-      }
-    }
-
-    if ((!fullText || streamError) && !clientClosed.value) {
-      fullText = buildFallbackChatAnswer(question, contextFiles);
-    }
-
-    if ((fullText || streamError) && !clientClosed.value) {
-      const sourcePaths = contextFiles.map((file) => file.file_path);
-
-      Promise.all([
-        pgPool.query(
-          `INSERT INTO conversation_messages (conversation_id, role, content) VALUES ($1, 'user', $2)`,
-          [activeConversationId, question],
-        ),
-        pgPool.query(
-          `
-            INSERT INTO conversation_messages (conversation_id, role, content, source_files, confidence)
-            VALUES ($1, 'assistant', $2, $3::jsonb, 'medium')
-          `,
-          [activeConversationId, fullText, JSON.stringify(sourcePaths)],
-        ),
-        redisClient.setex(cacheKey, 3600, JSON.stringify({
-          text: fullText,
-          sources: sourcePaths,
-          conversationId: activeConversationId,
-          confidence: streamError ? 'low' : 'medium',
-        })).catch(() => {}),
-      ]).catch((error) => console.error('[chat] post-stream persistence error:', error));
-
+    if (!clientClosed) {
       writeSseEvent(res, {
         type: 'done',
-        sources: sourcePaths,
-        conversationId: activeConversationId,
-        confidence: streamError ? 'low' : 'medium',
-        fallback: Boolean(streamError),
+        sources: result.data?.sources || [],
+        conversationId: result.data?.conversationId || null,
+        confidence: result.data?.confidence || 'low',
+        fallback: result.data?.fallback || false,
+        cached: result.data?.cacheHit || false,
       });
     }
 
