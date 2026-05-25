@@ -9,6 +9,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import cytoscape from 'cytoscape';
 import fcose from 'cytoscape-fcose';
+import { AiPanel } from '../../ai';
 import {
   Filter,
   Info,
@@ -579,8 +580,20 @@ export default function CytoscapeGraphView() {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-hidden rounded-xl" style={canvasStyle}>
+      <div className="relative flex-1 min-h-0 overflow-hidden rounded-xl" style={canvasStyle}>
         <div ref={containerRef} className="h-full w-full" />
+
+        {selectedNodeId && (
+          <div className="pointer-events-none absolute right-3 top-3 z-20 w-88 max-w-[calc(100%-1.5rem)] animate-in fade-in slide-in-from-right-2 duration-200">
+            <div className="pointer-events-auto max-h-[calc(100vh-12rem)] overflow-auto custom-scrollbar">
+              <AiPanel
+                nodeId={selectedNodeId}
+                graph={graph}
+                onClose={() => dispatch(selectNode(null))}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
