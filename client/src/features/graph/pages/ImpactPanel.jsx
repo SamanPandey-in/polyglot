@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useSelector } from 'react-redux';
-import { AlertCircle, ChevronRight, GitBranch, Zap } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AlertCircle, ArrowLeft, ChevronRight, GitBranch, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { selectGraphData, selectSelectedNodeId } from '../slices/graphSlice';
 
@@ -68,6 +69,7 @@ export default function ImpactPanel() {
   const graphData      = useSelector(selectGraphData);
   const selectedNodeId = useSelector(selectSelectedNodeId);
   const jobId          = graphData?.jobId;
+  const navigate       = useNavigate();
 
   const [impact,  setImpact]  = useState(null);
   const [loading, setLoading] = useState(false);
@@ -75,6 +77,15 @@ export default function ImpactPanel() {
 
   // BUG 2 FIX: use VITE_API_BASE_URL consistently — never hardcode localhost
   const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+
+  function handleBack() {
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+
+    navigate('/graph');
+  }
 
   async function runImpact() {
     if (!jobId || !selectedNodeId) return;
@@ -117,9 +128,15 @@ export default function ImpactPanel() {
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
-      <div className="flex items-center gap-2">
-        <Zap className="size-4 text-primary" />
-        <h2 className="text-sm font-semibold">Impact Simulator</h2>
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="sm" onClick={handleBack} className="gap-2 px-2 text-xs">
+          <ArrowLeft className="size-3.5" />
+          Back
+        </Button>
+        <div className="flex items-center gap-2">
+          <Zap className="size-4 text-primary" />
+          <h2 className="text-sm font-semibold">Impact Simulator</h2>
+        </div>
         <span className="ml-auto text-[10px] text-muted-foreground">6-hop BFS</span>
       </div>
 
