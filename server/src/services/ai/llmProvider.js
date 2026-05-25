@@ -7,6 +7,10 @@ const DEFAULT_ANTHROPIC_CHAT_MODEL = process.env.ANTHROPIC_MODEL || 'claude-3-5-
 const DEFAULT_CHAT_MODEL = process.env.AI_MODEL || null;
 const DEFAULT_EMBEDDING_MODEL =
   process.env.AI_EMBEDDING_MODEL || process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small';
+const DEFAULT_EMBEDDING_DIMENSIONS = Number.parseInt(
+  process.env.AI_EMBEDDING_DIMENSIONS || process.env.OPENAI_EMBEDDING_DIMENSIONS || '',
+  10,
+);
 
 function normalizeProvider(value) {
   const provider = String(value || 'openai-compatible').trim().toLowerCase();
@@ -22,6 +26,8 @@ function normalizeProvider(value) {
   if (['anthropic', 'claude'].includes(provider)) {
     return 'anthropic';
   }
+
+  // keep provider mapping minimal here; embeddings support handled in EmbeddingClient
 
   return provider;
 }
@@ -234,7 +240,7 @@ export class ChatClient {
         },
         {
           params: { key: this.apiKey },
-          headers: { 'content-type': 'application/json' },
+          headers: { 'content-type': 'application/json', Authorization: `Bearer ${this.apiKey}` },
           timeout: 60_000,
         },
       );
@@ -311,6 +317,11 @@ export class EmbeddingClient {
     this.baseUrl = resolveEmbeddingBaseUrl();
     this.model = DEFAULT_EMBEDDING_MODEL;
 
+    // If provider is gemini and no explicit base URL, default to Google's
+    if (this.provider === 'gemini' && !this.baseUrl) {
+      this.baseUrl = process.env.AI_EMBEDDING_BASE_URL || process.env.AI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai';
+    }
+
     this.openai =
       this.provider === 'openai-compatible' && this.apiKey
         ? new OpenAI({
@@ -329,16 +340,64 @@ export class EmbeddingClient {
       throw new Error('Embedding provider is not configured. Set AI_EMBEDDING_API_KEY and AI_EMBEDDING_MODEL.');
     }
 
-    if (this.provider !== 'openai-compatible') {
-      throw new Error(
-        `AI_EMBEDDING_PROVIDER '${this.provider}' is not supported. Use openai-compatible for embeddings.`,
-      );
+    // OpenAI-compatible (and OpenAI) path
+    if (this.provider === 'openai-compatible') {
+      const payload = {
+        model: model || this.model,
+        input,
+      };
+
+      if (Number.isInteger(DEFAULT_EMBEDDING_DIMENSIONS) && DEFAULT_EMBEDDING_DIMENSIONS > 0) {
+        payload.dimensions = DEFAULT_EMBEDDING_DIMENSIONS;
+      }
+
+      return this.openai.embeddings.create(payload);
     }
 
-    return this.openai.embeddings.create({
-      model: model || this.model,
-      input,
-    });
+    // Gemini via Google-provided OpenAI-compatible endpoint
+    if (this.provider === 'gemini') {
+      const base = String(this.baseUrl || 'https://generativelanguage.googleapis.com/v1beta/openai').replace(/\/$/, '');
+      const endpoint = `${base}/embeddings`;
+
+      const response = await axios.post(
+        endpoint,
+        {
+          model: model || process.env.AI_EMBEDDING_MODEL || process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-004',
+          input,
+        },
+        {
+          params: { key: this.apiKey },
+          headers: { 'content-type': 'application/json', Authorization: `Bearer ${this.apiKey}` },
+          timeout: 60_000,
+        },
+      );
+
+      const body = response?.data || {};
+
+      // Normalize to OpenAI-like shape: { data: [ { embedding: [...] } ], usage: {...} }
+      if (Array.isArray(body?.data)) {
+        return body;
+      }
+
+      if (Array.isArray(body)) {
+        return { data: body };
+      }
+
+      if (Array.isArray(body?.embeddings)) {
+        return { data: body.embeddings.map((e) => ({ embedding: e })) };
+      }
+
+      if (body?.embedding) {
+        return { data: [{ embedding: body.embedding }], usage: body.usage || {} };
+      }
+
+      // Fallback: return raw body under data if present
+      return { data: body?.data || [], usage: body?.usage || {} };
+    }
+
+    throw new Error(
+      `AI_EMBEDDING_PROVIDER '${this.provider}' is not supported. Supported providers: openai-compatible, gemini, anthropic, gemini.`,
+    );
   }
 }
 

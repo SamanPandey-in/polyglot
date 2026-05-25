@@ -29,6 +29,8 @@ services:
     depends_on:
       - postgres
       - redis
+    env_file:
+      - ./server/.env
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/codegraph
       REDIS_URL: redis://redis:6379

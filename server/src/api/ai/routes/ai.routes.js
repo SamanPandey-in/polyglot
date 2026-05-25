@@ -233,6 +233,8 @@ router.post('/query', async (req, res, next) => {
     const result = await agent.process({ question, jobId, userId }, { jobId });
 
     if (result.status === 'failed') {
+      // Log agent errors for debugging — this helps surface internal failures
+      try { console.error('[QueryAgent] failed:', JSON.stringify(result.errors || result, null, 2)); } catch (e) { console.error('[QueryAgent] failed (non-serializable)', result.errors || result); }
       return res.status(400).json({
         error: result.errors?.[0]?.message || 'Unable to process query.',
         details: result.errors || [],
