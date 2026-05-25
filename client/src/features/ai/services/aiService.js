@@ -42,6 +42,68 @@ async function postQuery({ question, jobId }) {
   return data;
 }
 
+async function readSseStream(response, { onChunk, onDone, onError } = {}) {
+  if (!response.body) {
+    throw new Error('Streaming response body is not available.');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+
+        const payload = line.slice(6).trim();
+        if (!payload) continue;
+
+        if (payload === '[DONE]') {
+          onDone?.();
+          return;
+        }
+
+        try {
+          const parsed = JSON.parse(payload);
+          if (parsed?.type === 'chunk') {
+            onChunk?.(parsed.text || '');
+          } else if (parsed?.type === 'done') {
+            onDone?.({
+              conversationId: parsed.conversationId || null,
+              sources: Array.isArray(parsed.sources) ? parsed.sources : [],
+              confidence: parsed.confidence || null,
+            });
+          } else if (parsed?.type === 'error') {
+            const error = new Error(parsed.message || 'Stream error');
+            onError?.(error);
+            throw error;
+          } else if (parsed?.text) {
+            onChunk?.(parsed.text);
+          }
+        } catch (error) {
+          if (error instanceof SyntaxError) {
+            continue;
+          }
+
+          throw error;
+        }
+      }
+    }
+
+    onDone?.();
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export const aiService = {
   async queryGraph({ question, jobId }) {
     const normalizedQuestion = normalizeText(question);
@@ -248,5 +310,68 @@ export const aiService = {
     } finally {
       reader.releaseLock();
     }
+  },
+
+  async streamChat({ question, jobId, conversationId = null, historyLimit = 6, onChunk, onDone, onError, signal } = {}) {
+    const normalizedQuestion = normalizeText(question);
+    const normalizedJobId = normalizeText(jobId);
+
+    if (!normalizedQuestion || !normalizedJobId) {
+      throw new Error('streamChat requires question and jobId.');
+    }
+
+    const url = resolveApiUrl('/api/ai/chat');
+    let response;
+
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: normalizedQuestion,
+          jobId: normalizedJobId,
+          conversationId: conversationId || undefined,
+          historyLimit,
+        }),
+        signal,
+      });
+    } catch (error) {
+      onError?.(error);
+      throw error;
+    }
+
+    if (!response.ok) {
+      let message = `Chat request failed with status ${response.status}.`;
+
+      try {
+        const payload = await response.json();
+        if (payload?.error) message = payload.error;
+      } catch {
+        // Ignore JSON parsing failures and keep the fallback message.
+      }
+
+      const error = new Error(message);
+      onError?.(error);
+      throw error;
+    }
+
+    try {
+      await readSseStream(response, { onChunk, onDone, onError });
+    } catch (error) {
+      if (error?.name === 'AbortError') return;
+      onError?.(error);
+      throw error;
+    }
+  },
+
+  async getConversations({ jobId }) {
+    const { data } = await aiClient.get('/api/ai/conversations', { params: { jobId } });
+    return data;
+  },
+
+  async getConversationMessages({ conversationId }) {
+    const { data } = await aiClient.get(`/api/ai/conversations/${conversationId}/messages`);
+    return data;
   },
 };

@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { X, AlertTriangle, Loader2, Zap, Wrench } from 'lucide-react';
+import ChatInput from './ChatInput';
+import ChatThread from './ChatThread';
 import {
   analyzeImpact,
   resetAiState,
   selectAiImpactState,
 } from '../slices/aiSlice';
+import { initConversation } from '../slices/conversationSlice';
 import { selectGraphData } from '../../graph/slices/graphSlice';
 import { aiService } from '../services/aiService';
 
@@ -367,6 +370,7 @@ export default function AiPanel({ nodeId, graph, onClose }) {
   const graphData = useSelector(selectGraphData);
   const impactState = useSelector(selectAiImpactState);
   const jobId = graphData?.jobId || graphData?.job?.jobId || graphData?.job?.id || null;
+  const [activeTab, setActiveTab] = useState('info');
 
   const [streamedText, setStreamedText]       = useState('');
   const [isStreaming, setIsStreaming]          = useState(false);
@@ -383,6 +387,9 @@ export default function AiPanel({ nodeId, graph, onClose }) {
   useEffect(() => {
     // BUG 6 FIX: clear stale impact data from the previous node immediately
     dispatch(resetAiState());
+    if (jobId) {
+      dispatch(initConversation({ jobId }));
+    }
     setStreamedText('');
     setStreamError('');
     setRefactorSuggestion(null);
@@ -509,7 +516,39 @@ export default function AiPanel({ nodeId, graph, onClose }) {
         )}
       </div>
 
+      <div className="flex gap-1">
+        {[
+          ['info', 'Info'],
+          ['chat', 'Chat'],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setActiveTab(id)}
+            className="rounded-lg border px-3 py-1 text-xs font-medium transition-colors"
+            style={{
+              background: activeTab === id ? 'rgba(168,85,247,0.15)' : 'transparent',
+              color: activeTab === id ? '#a855f7' : 'var(--text-muted)',
+              borderColor: activeTab === id ? 'rgba(168,85,247,0.3)' : 'transparent',
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'chat' && (
+        <div className="flex min-h-[420px] flex-col gap-3">
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            <ChatThread />
+          </div>
+          <ChatInput jobId={jobId} />
+        </div>
+      )}
+
       {/* AI Explanation */}
+      {activeTab === 'info' && (
+      <>
       <section>
         <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
           AI Explanation
@@ -681,7 +720,9 @@ export default function AiPanel({ nodeId, graph, onClose }) {
           <p className="text-[10px] text-muted-foreground">{refactorError}</p>
         )}
         {refactorSuggestion && <RefactorSuggestionView suggestion={refactorSuggestion} />}
-      </section>
+        </section>
+        </>
+        )}
     </div>
   );
 }
