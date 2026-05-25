@@ -31,13 +31,74 @@ function friendlyErrorMessage(rawMessage) {
   return msg;
 }
 
+function buildLocalExplanation({ nodeId, type, summary, declarations, deps, usedBy }) {
+  const exportCount = Array.isArray(declarations) ? declarations.length : 0;
+  const importCount = Array.isArray(deps) ? deps.length : 0;
+  const usedByCount = Array.isArray(usedBy) ? usedBy.length : 0;
+
+  const parts = [
+    `${nodeId} is a ${type || 'repository'} node.`,
+    exportCount > 0
+      ? `It exposes ${exportCount} export${exportCount === 1 ? '' : 's'} and imports ${importCount} module${importCount === 1 ? '' : 's'}.`
+      : `It imports ${importCount} module${importCount === 1 ? '' : 's'} and is referenced by ${usedByCount} file${usedByCount === 1 ? '' : 's'}.`,
+  ];
+
+  if (summary) {
+    parts.push(`Summary: ${summary}`);
+  }
+
+  if (usedByCount > 0) {
+    parts.push(`It is used by ${usedByCount} file${usedByCount === 1 ? '' : 's'}, so changes here can have wide impact.`);
+  }
+
+  return parts.join(' ');
+}
+
+function buildLocalRefactorSuggestion({ type, summary, declarations, deps, usedBy }) {
+  const concerns = [];
+  const suggestions = [];
+  const exportCount = Array.isArray(declarations) ? declarations.length : 0;
+  const importCount = Array.isArray(deps) ? deps.length : 0;
+  const usedByCount = Array.isArray(usedBy) ? usedBy.length : 0;
+
+  if (usedByCount > 8) {
+    concerns.push('This file has a high fan-in, so changes can ripple across many dependents.');
+    suggestions.push('Split high-impact responsibilities into smaller units with clearer boundaries.');
+  }
+
+  if (importCount > 8) {
+    concerns.push('The file has a large dependency surface, which can make it harder to test and reuse.');
+    suggestions.push('Extract shared helpers or adapters to reduce direct coupling.');
+  }
+
+  if (exportCount > 6) {
+    concerns.push('The file exposes many exports, which can indicate mixed responsibilities.');
+    suggestions.push('Group related exports into focused modules and keep each file centered on one concern.');
+  }
+
+  if (String(type || '').toLowerCase() === 'service') {
+    suggestions.push('Keep orchestration thin and move parsing or transformation logic into reusable helpers.');
+  }
+
+  if (summary) {
+    suggestions.push(`Review the current summary and extract the parts that are most likely to change independently: ${summary}`);
+  }
+
+  return {
+    concerns: concerns.length > 0 ? concerns : ['No strong structural smell was detected from the static graph metadata alone.'],
+    suggestions: suggestions.length > 0 ? suggestions : ['Prefer smaller, testable functions and keep dependencies localized.'],
+    priority: usedByCount > 8 || importCount > 8 ? 'high' : exportCount > 6 ? 'medium' : 'low',
+    estimatedEffort: usedByCount > 8 || importCount > 8 ? '1-3 hours' : 'under 1 hour',
+  };
+}
+
 // ─── component ──────────────────────────────────────────────────────────────
 
 export default function AiPanel({ nodeId, graph, onClose }) {
   const dispatch = useDispatch();
   const graphData = useSelector(selectGraphData);
   const impactState = useSelector(selectAiImpactState);
-  const jobId = graphData?.jobId;
+  const jobId = graphData?.jobId || graphData?.job?.jobId || graphData?.job?.id || null;
 
   const [streamedText, setStreamedText]       = useState('');
   const [isStreaming, setIsStreaming]          = useState(false);
@@ -136,7 +197,16 @@ export default function AiPanel({ nodeId, graph, onClose }) {
       const result = await aiService.suggestRefactor({ jobId, filePath: nodeId });
       setRefactorSuggestion(result);
     } catch (err) {
-      setRefactorError(friendlyErrorMessage(err?.message));
+      setRefactorSuggestion(
+        buildLocalRefactorSuggestion({
+          type,
+          summary,
+          declarations,
+          deps,
+          usedBy,
+        }),
+      );
+      setRefactorError('AI refactor suggestions are unavailable right now. Showing a local graph-based fallback instead.');
     } finally {
       setIsLoadingRefactor(false);
     }
@@ -176,7 +246,7 @@ export default function AiPanel({ nodeId, graph, onClose }) {
         <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
           AI Explanation
         </p>
-        <div className="min-h-[60px] rounded-lg border border-border/40 bg-muted/20 p-3 text-xs leading-relaxed text-foreground/80">
+        <div className="min-h-15 rounded-lg border border-border/40 bg-muted/20 p-3 text-xs leading-relaxed text-foreground/80">
           {isStreaming && !streamedText && (
             <span className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="size-3 animate-spin" />
@@ -192,9 +262,21 @@ export default function AiPanel({ nodeId, graph, onClose }) {
           )}
           {/* BUG 1 FIX: display the friendly error message */}
           {streamError && (
-            <div className="flex items-start gap-2 text-destructive">
-              <AlertTriangle className="mt-0.5 size-3 shrink-0" />
-              <span>{streamError}</span>
+            <div className="space-y-2">
+              <div className="flex items-start gap-2 text-destructive">
+                <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                <span>{streamError}</span>
+              </div>
+              <div className="rounded-md border border-border/40 bg-background/60 p-2 text-foreground/75">
+                {buildLocalExplanation({
+                  nodeId,
+                  type,
+                  summary,
+                  declarations,
+                  deps,
+                  usedBy,
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -328,7 +410,7 @@ export default function AiPanel({ nodeId, graph, onClose }) {
           </button>
         </div>
         {refactorError && (
-          <p className="text-[10px] text-destructive">{refactorError}</p>
+          <p className="text-[10px] text-muted-foreground">{refactorError}</p>
         )}
         {refactorSuggestion && (
           <div className="space-y-2 text-xs">

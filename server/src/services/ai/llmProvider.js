@@ -1,7 +1,10 @@
 import axios from 'axios';
 import OpenAI from 'openai';
 
-const DEFAULT_CHAT_MODEL = process.env.AI_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const DEFAULT_OPENAI_CHAT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const DEFAULT_GEMINI_CHAT_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
+const DEFAULT_ANTHROPIC_CHAT_MODEL = process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022';
+const DEFAULT_CHAT_MODEL = process.env.AI_MODEL || null;
 const DEFAULT_EMBEDDING_MODEL =
   process.env.AI_EMBEDDING_MODEL || process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small';
 
@@ -31,6 +34,13 @@ function resolveChatApiKey(provider) {
     || process.env.OPENAI_API_KEY
     || null
   );
+}
+
+function resolveChatModel(provider) {
+  if (DEFAULT_CHAT_MODEL) return DEFAULT_CHAT_MODEL;
+  if (provider === 'gemini') return DEFAULT_GEMINI_CHAT_MODEL;
+  if (provider === 'anthropic') return DEFAULT_ANTHROPIC_CHAT_MODEL;
+  return DEFAULT_OPENAI_CHAT_MODEL;
 }
 
 function resolveChatBaseUrl(provider) {
@@ -125,7 +135,7 @@ export class ChatClient {
     this.provider = normalizeProvider(process.env.AI_PROVIDER || 'openai-compatible');
     this.apiKey = resolveChatApiKey(this.provider);
     this.baseUrl = resolveChatBaseUrl(this.provider);
-    this.model = DEFAULT_CHAT_MODEL;
+    this.model = resolveChatModel(this.provider);
 
     this.openai =
       this.provider === 'openai-compatible' && this.apiKey
@@ -203,7 +213,7 @@ export class ChatClient {
     }
 
     if (this.provider === 'gemini') {
-      const base = this.baseUrl.replace(/\/$/, '');
+      const base = String(this.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, '');
       const endpoint = `${base}/models/${encodeURIComponent(selectedModel)}:generateContent`;
       const contents = toGeminiPayload(messages);
 

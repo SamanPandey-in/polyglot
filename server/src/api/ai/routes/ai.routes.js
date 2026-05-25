@@ -12,7 +12,7 @@ import { getAuthUser, resolveDatabaseUserId } from '../../../utils/authUser.js';
 
 const router = Router();
 const chatClient = createChatClient();
-const defaultChatModel = process.env.AI_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const defaultChatModel = chatClient.model;
 
 // BUG 5 FIX: Redis cache for streamed explanations
 const STREAM_CACHE_TTL = 60 * 60; // 1 hour
