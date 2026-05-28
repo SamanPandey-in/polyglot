@@ -39,6 +39,7 @@ export class FunctionChunker {
             function_name: declaration.name,
             kind: declaration.kind || 'function',
             calls: declaration.calls || [],
+            body_source: declaration.bodySource || declaration.body_source || null,
             file_summary: graph?.[filePath]?.summary || null,
             file_type: graph?.[filePath]?.type || 'module',
           });
@@ -53,6 +54,7 @@ export class FunctionChunker {
             fn.name AS function_name,
             fn.kind,
             fn.calls,
+            fn.body_source,
             gn.summary AS file_summary,
             gn.file_type
           FROM function_nodes fn
@@ -81,6 +83,7 @@ export class FunctionChunker {
         `File: ${fn.file_path} (${fn.file_type || 'module'})`,
         fn.kind ? `Kind: ${fn.kind}` : '',
         fn.file_summary ? `File context: ${fn.file_summary}` : '',
+        fn.body_source || fn.bodySource ? `Body:\n${(fn.body_source || fn.bodySource).slice(0, 2000)}` : '',
         Array.isArray(fn.calls) && fn.calls.length > 0 ? `Calls: ${fn.calls.map((call) => call?.name).filter(Boolean).join(', ')}` : '',
       ].filter(Boolean).join('\n'));
 
@@ -105,7 +108,7 @@ export class FunctionChunker {
               SET embedding = EXCLUDED.embedding,
                   body_summary = EXCLUDED.body_summary
             `,
-            [jobId, row.file_path, row.function_name, literal, row.file_summary || null],
+            [jobId, row.file_path, row.function_name, literal, row.body_source || row.file_summary || null],
           );
           succeeded += 1;
         }
