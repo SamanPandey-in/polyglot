@@ -155,6 +155,11 @@ async function run() {
     const query = new Query(lang, queries.declarations);
     for (const match of query.matches(root)) {
       const kind = declarationKindFromCaptures(match.captures);
+
+      // Find the node capture that represents the whole declaration (e.g., @fn or @cls)
+      const markerCapture = match.captures.find((c) => c.name !== 'name' && c.name !== 'import');
+      const declNode = markerCapture ? markerCapture.node : null;
+
       for (const capture of match.captures) {
         if (capture.name !== 'name') continue;
 
@@ -164,7 +169,18 @@ async function run() {
 
         seenDecls.add(key);
         declarations.push({ name, kind });
-        functionNodes.push({ name, kind, calls: [], loc: null });
+
+        let loc = null;
+        let bodySource = null;
+        if (declNode) {
+          const startLine = declNode.startPosition.row + 1;
+          const endLine = declNode.endPosition.row + 1;
+          loc = { startLine, endLine };
+          const lines = source.split(/\r?\n/);
+          bodySource = lines.slice(startLine - 1, endLine).join('\n');
+        }
+
+        functionNodes.push({ name, kind, calls: [], loc, bodySource });
       }
     }
   }
