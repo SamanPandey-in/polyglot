@@ -55,20 +55,23 @@ export class PostgresGraphRepository extends IGraphRepository {
 
       // 2. Edges
       const edgeSourcePaths = [], edgeTargetPaths = [], edgeTypes = [];
+      const edgeSourceLines = [], edgeTargetLines = [];
       const edgesToPersist = typedEdges.length > 0 ? typedEdges : edges;
       for (const edge of edgesToPersist) {
         if (!edge?.source || !edge?.target) continue;
         edgeSourcePaths.push(edge.source);
         edgeTargetPaths.push(edge.target);
         edgeTypes.push(edge.type || 'import');
+        edgeSourceLines.push(toJson(edge.source_lines ?? null, null));
+        edgeTargetLines.push(toJson(edge.target_lines ?? null, null));
       }
 
       if (edgeSourcePaths.length > 0) {
         await client.query(
-          `INSERT INTO graph_edges (job_id, source_path, target_path, edge_type)
-           SELECT $1, unnest($2::text[]), unnest($3::text[]), unnest($4::text[])
-           ON CONFLICT (job_id, source_path, target_path, edge_type) DO NOTHING`,
-          [jobId, edgeSourcePaths, edgeTargetPaths, edgeTypes]
+          `INSERT INTO graph_edges (job_id, source_path, target_path, edge_type, source_lines, target_lines)
+           SELECT $1, unnest($2::text[]), unnest($3::text[]), unnest($4::text[]), unnest($5::jsonb[]), unnest($6::jsonb[])
+           ON CONFLICT (job_id, source_path, target_path, edge_type) DO UPDATE SET source_lines = EXCLUDED.source_lines, target_lines = EXCLUDED.target_lines`,
+          [jobId, edgeSourcePaths, edgeTargetPaths, edgeTypes, edgeSourceLines, edgeTargetLines]
         );
       }
 
