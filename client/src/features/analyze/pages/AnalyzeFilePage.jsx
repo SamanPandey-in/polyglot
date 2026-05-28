@@ -210,6 +210,12 @@ export default function AnalyzeFilePage() {
     return Prism.highlight(value, grammar, codeLanguage);
   }, [codeLanguage, fileState.data?.content]);
 
+  const highlightedLines = useMemo(() => {
+    const raw = String(fileState.data?.content || '');
+    const grammar = Prism.languages[codeLanguage] || Prism.languages.clike;
+    return raw.split('\n').map((line) => Prism.highlight(line || '\n', grammar, codeLanguage));
+  }, [codeLanguage, fileState.data?.content]);
+
   const viewerLineCount = useMemo(() => {
     const value = String(fileState.data?.content || '');
     return Math.max(1, value.split('\n').length);
@@ -307,6 +313,49 @@ export default function AnalyzeFilePage() {
     const safeOffset = Math.max(0, Math.min(String(value || '').length, offset));
     const upToOffset = String(value || '').slice(0, safeOffset);
     return upToOffset.split('\n').length;
+  };
+
+  const getOffsetsForLineRange = (lineStart, lineEnd) => {
+    const raw = String(fileState.data?.content || '');
+    const lines = raw.split('\n');
+    const maxLine = Math.max(1, lines.length);
+    const startLine = Math.max(1, Math.min(maxLine, Number(lineStart) || 1));
+    const endLine = Math.max(startLine, Math.min(maxLine, Number(lineEnd) || startLine));
+
+    let start = 0;
+    for (let i = 0; i < startLine - 1; i += 1) start += lines[i].length + 1;
+
+    let end = start;
+    for (let i = startLine - 1; i < endLine; i += 1) {
+      end += lines[i].length;
+      if (i < endLine - 1) end += 1; // newline
+    }
+
+    return {
+      start,
+      end,
+      text: raw.slice(start, end),
+    };
+  };
+
+  const handleLineSelectionClick = (lineStart, lineEnd, event) => {
+    const offsets = getOffsetsForLineRange(lineStart, lineEnd);
+    if (!offsets || offsets.end <= offsets.start) {
+      triggerSnippetAnalysis({ snippet: '', lineStart: null, lineEnd: null, shouldAnalyze: false });
+      return;
+    }
+
+    const clientX = event?.clientX || 0;
+    const clientY = event?.clientY || 0;
+    updateSnippetPopoverAnchor({ x: clientX + 12, y: clientY - 12, visible: true });
+
+    triggerSnippetAnalysis({
+      snippet: offsets.text,
+      lineStart,
+      lineEnd,
+      shouldAnalyze: isAutoSnippetAnalyze,
+      triggerSource: isAutoSnippetAnalyze ? 'auto' : 'manual-ready',
+    });
   };
 
   const openSnippetDrawer = () => {
@@ -613,17 +662,24 @@ export default function AnalyzeFilePage() {
         <div>
           <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
             What It Does
-          </p>
-          <p className="text-foreground/90 whitespace-pre-wrap leading-relaxed">
-            {snippetState.data.whatItDoes}
-          </p>
-        </div>
-      )}
-
-      {snippetState.data?.fileImpact && !compact && (
-        <div>
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
-            File Impact
+                      <pre
+                        ref={viewerCodeRef}
+                        onMouseUp={handleViewerSelection}
+                        onKeyUp={handleViewerSelection}
+                        className="min-w-max px-4 py-3 font-mono text-xs leading-5 overflow-visible whitespace-pre"
+                      >
+                        <code className={`language-${codeLanguage}`}>
+                          {highlightedLines.map((html, idx) => (
+                            <div
+                              key={`line-${idx + 1}`}
+                              data-line={idx + 1}
+                              onMouseUp={(e) => handleLineSelectionClick(idx + 1, idx + 1, e.nativeEvent || e)}
+                              className="selectable-code-line block w-full cursor-text"
+                              dangerouslySetInnerHTML={{ __html: html || '' }}
+                            />
+                          ))}
+                        </code>
+                      </pre>
           </p>
           <p className="text-foreground/90 whitespace-pre-wrap leading-relaxed">
             {snippetState.data.fileImpact}
