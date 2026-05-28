@@ -73,15 +73,20 @@ async function bfsNeo4j(jobId, startNode, maxHops) {
  */
 async function bfsPostgres(jobId, startNode, maxHops) {
   const edgeResult = await pgPool.query(
-    'SELECT source_path, target_path FROM graph_edges WHERE job_id = $1',
+    'SELECT source_path, target_path, source_lines, target_lines, edge_type FROM graph_edges WHERE job_id = $1',
     [jobId],
   );
 
-  // Reverse map: target → [sources that import it]
+  // Reverse map: target -> [{ source, source_lines, target_lines, type }]
   const reverseMap = new Map();
   for (const row of edgeResult.rows) {
     if (!reverseMap.has(row.target_path)) reverseMap.set(row.target_path, []);
-    reverseMap.get(row.target_path).push(row.source_path);
+    reverseMap.get(row.target_path).push({
+      source: row.source_path,
+      source_lines: row.source_lines || null,
+      target_lines: row.target_lines || null,
+      type: row.edge_type || 'import',
+    });
   }
 
   const visited = new Set([startNode]);
@@ -89,16 +94,26 @@ async function bfsPostgres(jobId, startNode, maxHops) {
   let current = [startNode];
   let depth = 0;
 
-  while (current.length > 0 && depth < maxHops) {
+    while (current.length > 0 && depth < maxHops) {
     depth += 1;
     const next = [];
     for (const node of current) {
-      for (const dep of reverseMap.get(node) || []) {
-        if (visited.has(dep)) continue;
-        visited.add(dep);
-        nodes.push({ path: dep, depth, nodeType: 'CodeFile' });
-        next.push(dep);
-      }
+        for (const depEntry of reverseMap.get(node) || []) {
+          const dep = depEntry.source;
+          if (visited.has(dep)) continue;
+          visited.add(dep);
+          nodes.push({
+            path: dep,
+            depth,
+            nodeType: 'CodeFile',
+            via: depEntry.type || 'import',
+            lines: {
+              source: depEntry.source_lines || null,
+              target: depEntry.target_lines || null,
+            },
+          });
+          next.push(dep);
+        }
     }
     current = next;
   }
