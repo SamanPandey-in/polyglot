@@ -714,6 +714,25 @@ export async function createPrCommitController(req, res, next) {
       throw err;
     }
 
+    const repoDetails = await (async () => {
+      const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'polyglot',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        const err = new Error(`GitHub API GET /repos/${owner}/${repo} failed: ${response.status} ${text}`);
+        err.statusCode = response.status;
+        throw err;
+      }
+
+      return response.json();
+    })();
+
     // Helper to call GitHub API
     const ghFetch = async (method, apiPath, body) => {
       const url = `https://api.github.com${apiPath}`;
@@ -736,25 +755,48 @@ export async function createPrCommitController(req, res, next) {
       return resp.json();
     };
 
-    // 1) Ensure head branch exists (create from base if provided)
-    let headBranch = head || `${base}-polyglot-${Date.now()}`;
-    try {
-      // Check if head exists
-      await ghFetch('GET', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/ref/heads/${encodeURIComponent(headBranch)}`);
-    } catch (err) {
-      // create head from base
-      const baseRef = await ghFetch('GET', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/ref/heads/${encodeURIComponent(base)}`);
-      const baseSha = baseRef?.object?.sha || baseRef?.object?.sha;
-      if (!baseSha) {
-        const e = new Error('Could not determine base branch SHA to create new branch.');
-        e.statusCode = 500;
-        throw e;
-      }
+    const defaultBranch = repoDetails?.default_branch || 'main';
+    const baseCandidates = [...new Set([base, defaultBranch].filter(Boolean))];
 
-      await ghFetch('POST', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/refs`, {
-        ref: `refs/heads/${headBranch}`,
-        sha: baseSha,
-      });
+    const getBranchSha = async (branchName) => {
+      if (!branchName) return null;
+      try {
+        const branchRef = await ghFetch('GET', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/ref/heads/${encodeURIComponent(branchName)}`);
+        return branchRef?.object?.sha || null;
+      } catch (err) {
+        if (err.statusCode === 404) return null;
+        throw err;
+      }
+    };
+
+    // 1) Ensure head branch exists (create from a valid base if provided)
+    const headBranch = head || `${baseCandidates[0] || defaultBranch}-polyglot-${Date.now()}`;
+    try {
+      const headSha = await getBranchSha(headBranch);
+      if (headSha) {
+        // Head already exists; use it as-is.
+      } else {
+        let baseSha = null;
+        for (const candidate of baseCandidates) {
+          baseSha = await getBranchSha(candidate);
+          if (baseSha) break;
+        }
+
+        if (!baseSha) {
+          const err = new Error(
+            `Base branch not found. Tried: ${baseCandidates.join(', ') || defaultBranch}. Please pick an existing branch.`,
+          );
+          err.statusCode = 400;
+          throw err;
+        }
+
+        await ghFetch('POST', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/refs`, {
+          ref: `refs/heads/${headBranch}`,
+          sha: baseSha,
+        });
+      }
+    } catch (err) {
+      return next(err);
     }
 
     // 2) Create or update file on head branch
