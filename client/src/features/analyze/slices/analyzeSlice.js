@@ -354,7 +354,6 @@ const analyzeSlice = createSlice({
 });
 
 export const { setSelectedAnalyzeRepository } = analyzeSlice.actions;
-export { commitFile };
 
 export const selectAnalyzeSelectedRepository = (state) => state.analyze.selectedRepository;
 export const selectAnalyzeStructure = (state) => state.analyze.structure;

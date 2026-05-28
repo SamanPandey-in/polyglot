@@ -830,7 +830,7 @@ export default function AnalyzeFilePage() {
       )}
 
       {selectedFilePath && (
-        <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(21rem,1fr)]">
+        <div className="mt-6 grid items-start gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(21rem,1fr)]">
           <div className="rounded-2xl shadow-neu-inset border-none bg-background/40">
             <div className="flex items-center justify-between gap-3 border-b border-border/10 px-5 py-4">
               <div className="min-w-0">
@@ -989,21 +989,15 @@ export default function AnalyzeFilePage() {
                       >
                         {Array.from({ length: editorLineCount }, (_, i) => i + 1).join('\n')}
                       </pre>
-                          {highlightedLines.map((html, idx) => {
-                            const ln = idx + 1;
-                            const ranges = Array.isArray(snippetState.highlightRanges) ? snippetState.highlightRanges : [];
-                            const isHighlighted = ranges.some((r) => Array.isArray(r) && r.length >= 2 && ln >= r[0] && ln <= r[1]);
-                            return (
-                              <div
-                                key={`line-${ln}`}
-                                data-line={ln}
-                                onMouseUp={(e) => handleLineSelectionClick(ln, ln, e.nativeEvent || e)}
-                                className={`selectable-code-line block w-full cursor-text ${isHighlighted ? 'bg-primary/10' : ''}`}
-                                dangerouslySetInnerHTML={{ __html: html || '' }}
-                              />
-                            );
-                          })}
-                        className="min-w-max flex-1 resize-none bg-transparent px-3 py-3 font-mono text-xs leading-5 outline-none whitespace-pre overflow-hidden text-foreground/90"
+                      <textarea
+                        ref={editorTextareaRef}
+                        value={editorValue}
+                        onChange={(event) => setEditorValue(event.target.value)}
+                        onSelect={handleTextareaSelection}
+                        onMouseUp={handleTextareaSelection}
+                        onKeyUp={handleTextareaSelection}
+                        className="min-w-max flex-1 resize-none bg-transparent px-3 py-3 font-mono text-xs leading-5 outline-none whitespace-pre overflow-auto text-foreground/90"
+                        spellCheck={false}
                       />
                     </div>
                   </div>
@@ -1053,228 +1047,166 @@ export default function AnalyzeFilePage() {
             )}
           </div>
 
-          <div className="relative min-h-104 xl:justify-self-end xl:w-full xl:max-w-120">
+          <div className="relative h-fit self-start xl:justify-self-end xl:w-full xl:max-w-120">
             {hasNodeInsights ? (
-              <AiPanel
-                nodeId={selectedFilePath}
-                graph={aiGraph}
-                onClose={() => navigate(backToExplorer)}
-              />
+              <div className="space-y-4">
+                <AiPanel
+                  nodeId={selectedFilePath}
+                  graph={aiGraph}
+                  onClose={() => navigate(backToExplorer)}
+                />
+
+                {(showSnippetPopover || isSnippetDrawerOpen) && (
+                  <div className="space-y-4">
+                    {showSnippetPopover && (
+                      <div className="rounded-2xl border border-border/70 bg-background/95 p-3 shadow-xl backdrop-blur-sm">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
+                            Snippet Insight
+                          </p>
+                          <div className="flex items-center gap-1.5">
+                            <span className="rounded-md border border-border/60 bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                              {isAutoSnippetAnalyze ? 'Auto Analysis' : 'Manual Analysis'}
+                            </span>
+                            <span className="rounded-md border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                              Analysis
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSnippetPopoverAnchor((prev) => ({ ...prev, visible: false }))}
+                            className="rounded-md border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+                          >
+                            Close
+                          </button>
+                        </div>
+
+                        {snippetState.status === 'loading' && (
+                          <div className="mb-2 inline-flex items-center gap-2 text-xs text-muted-foreground">
+                            <Loader2 className="size-3.5 animate-spin" />
+                            {snippetState.data ? 'Updating analysis...' : 'Analyzing...'}
+                          </div>
+                        )}
+
+                        {quickSnippetSummary ? (
+                          <p className="text-xs leading-relaxed text-foreground/90">{quickSnippetSummary}</p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            {snippetState.notice || 'Selection captured. Run analysis for impact details.'}
+                          </p>
+                        )}
+
+                        {snippetState.data && (
+                          <div className="mt-2">{renderSnippetImpactDetails({ compact: true })}</div>
+                        )}
+
+                        <div className="mt-3 flex items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={openSnippetDrawer}
+                            className="rounded-lg border border-border/60 bg-background/70 px-2.5 py-1 text-[10px] text-muted-foreground hover:text-foreground"
+                          >
+                            Open Full Impact
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsSnippetPopoverPinned((prev) => !prev)}
+                            className={`rounded-lg border px-2.5 py-1 text-[10px] ${isSnippetPopoverPinned
+                                ? 'border-primary/40 bg-primary/10 text-primary'
+                                : 'border-border/60 bg-background/70 text-muted-foreground hover:text-foreground'
+                              }`}
+                          >
+                            {isSnippetPopoverPinned ? 'Unpin' : 'Pin'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {isSnippetDrawerOpen && (
+                      <div
+                        ref={snippetPanelRef}
+                        tabIndex={-1}
+                        className="rounded-2xl border border-border/70 bg-background/95 p-4 shadow-2xl backdrop-blur-sm outline-none"
+                      >
+                        <div className="mb-3 flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
+                              Snippet Impact
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {snippetState.lineStart && snippetState.lineEnd
+                                ? `Lines ${snippetState.lineStart}-${snippetState.lineEnd}`
+                                : 'Select a snippet to inspect impact'}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setIsSnippetPopoverPinned((prev) => !prev)}
+                              className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] transition-colors ${isSnippetPopoverPinned
+                                  ? 'border-primary/40 bg-primary/10 text-primary'
+                                  : 'border-border/60 bg-background/70 text-muted-foreground hover:text-foreground'
+                                }`}
+                            >
+                              <Pin className="size-3" />
+                              {isSnippetPopoverPinned ? 'Pinned' : 'Pin'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setIsSnippetDrawerOpen(false)}
+                              className="inline-flex items-center rounded-lg border border-border/60 bg-background/70 px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground"
+                            >
+                              <X className="size-3" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3 max-h-[60vh] overflow-auto pr-1 custom-scrollbar">
+                          {snippetState.selectedSnippet ? (
+                            <pre className="max-h-32 overflow-auto rounded-lg border border-border/60 bg-background/80 px-2 py-2 font-mono text-[11px] leading-5 text-foreground/90 custom-scrollbar">
+                              {snippetState.selectedSnippet}
+                            </pre>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              Select a meaningful snippet to view purpose and impact insights.
+                            </p>
+                          )}
+
+                          {snippetState.notice && (
+                            <p className="rounded-lg border border-border/60 bg-background/70 px-2 py-2 text-xs text-muted-foreground">
+                              {snippetState.notice}
+                            </p>
+                          )}
+
+                          {snippetState.status === 'loading' && (
+                            <div className="rounded-lg border border-border/60 bg-background/70 px-2 py-2 text-xs text-muted-foreground">
+                              <div className="flex items-center gap-2">
+                                <Loader2 className="size-3.5 animate-spin" />
+                                {snippetState.data ? 'Updating analysis...' : 'Analyzing snippet impact...'}
+                              </div>
+                            </div>
+                          )}
+
+                          {snippetState.status === 'failed' && snippetState.error && (
+                            <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-2 py-2 text-xs text-destructive">
+                              <AlertTriangle className="mt-0.5 size-3.5" />
+                              <span>{snippetState.error}</span>
+                            </div>
+                          )}
+
+                          {snippetState.data && renderSnippetImpactDetails()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="rounded-xl border border-border/50 bg-background/40 p-3 text-xs text-muted-foreground">
                 Insight panel is available after graph data is loaded for this repository/job.
               </div>
             )}
           </div>
-        </div>
-      )}
-
-      {isSnippetDrawerOpen && (
-        <div className="fixed right-4 top-24 z-40 hidden w-104 max-w-[calc(100vw-2rem)] xl:block animate-in fade-in slide-in-from-right-2 duration-200">
-          <div
-            ref={snippetPanelRef}
-            tabIndex={-1}
-            className="rounded-2xl border border-border/70 bg-background/95 p-4 shadow-2xl backdrop-blur-sm outline-none animate-in zoom-in-95 duration-200"
-          >
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
-                  Snippet Impact
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {snippetState.lineStart && snippetState.lineEnd
-                    ? `Lines ${snippetState.lineStart}-${snippetState.lineEnd}`
-                    : 'Select a snippet to inspect impact'}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsSnippetPopoverPinned((prev) => !prev)}
-                  className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] transition-colors ${isSnippetPopoverPinned
-                      ? 'border-primary/40 bg-primary/10 text-primary'
-                      : 'border-border/60 bg-background/70 text-muted-foreground hover:text-foreground'
-                    }`}
-                >
-                  <Pin className="size-3" />
-                  {isSnippetPopoverPinned ? 'Pinned' : 'Pin'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsSnippetDrawerOpen(false)}
-                  className="inline-flex items-center rounded-lg border border-border/60 bg-background/70 px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground"
-                >
-                  <X className="size-3" />
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-3 max-h-[70vh] overflow-auto pr-1 custom-scrollbar">
-              {snippetState.selectedSnippet ? (
-                <pre className="max-h-32 overflow-auto rounded-lg border border-border/60 bg-background/80 px-2 py-2 font-mono text-[11px] leading-5 text-foreground/90 custom-scrollbar">
-                  {snippetState.selectedSnippet}
-                </pre>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Select a meaningful snippet to view purpose and impact insights.
-                </p>
-              )}
-
-              {snippetState.notice && (
-                <p className="rounded-lg border border-border/60 bg-background/70 px-2 py-2 text-xs text-muted-foreground">
-                  {snippetState.notice}
-                </p>
-              )}
-
-              {snippetState.status === 'loading' && (
-                <div className="rounded-lg border border-border/60 bg-background/70 px-2 py-2 text-xs text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                    <Loader2 className="size-3.5 animate-spin" />
-                    {snippetState.data ? 'Updating analysis...' : 'Analyzing snippet impact...'}
-                  </div>
-                </div>
-              )}
-
-              {snippetState.status === 'failed' && snippetState.error && (
-                <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-2 py-2 text-xs text-destructive">
-                  <AlertTriangle className="mt-0.5 size-3.5" />
-                  <span>{snippetState.error}</span>
-                </div>
-              )}
-
-              {snippetState.data && renderSnippetImpactDetails()}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showSnippetPopover && (
-        <div
-          className="pointer-events-none fixed z-50 hidden w-88 max-w-[calc(100vw-2rem)] origin-top-left xl:block animate-in fade-in zoom-in-95 slide-in-from-top-1 duration-200"
-          style={{
-            left: `${snippetPopoverAnchor.x}px`,
-            top: `${snippetPopoverAnchor.y}px`,
-          }}
-        >
-          <div className="pointer-events-auto rounded-2xl border border-border/70 bg-background/95 p-3 shadow-2xl backdrop-blur-sm">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
-                Snippet Insight
-              </p>
-              <div className="flex items-center gap-1.5">
-                <span className="rounded-md border border-border/60 bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  {isAutoSnippetAnalyze ? 'Auto Analysis' : 'Manual Analysis'}
-                </span>
-                <span className="rounded-md border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
-                  Analysis
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSnippetPopoverAnchor((prev) => ({ ...prev, visible: false }))}
-                className="rounded-md border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
-              >
-                Close
-              </button>
-            </div>
-
-            {snippetState.status === 'loading' && (
-              <div className="mb-2 inline-flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="size-3.5 animate-spin" />
-                {snippetState.data ? 'Updating analysis...' : 'Analyzing...'}
-              </div>
-            )}
-
-            {quickSnippetSummary ? (
-              <p className="text-xs leading-relaxed text-foreground/90">{quickSnippetSummary}</p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                {snippetState.notice || 'Selection captured. Run analysis for impact details.'}
-              </p>
-            )}
-
-            {snippetState.data && (
-              <div className="mt-2">{renderSnippetImpactDetails({ compact: true })}</div>
-            )}
-
-            <div className="mt-3 flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={openSnippetDrawer}
-                className="rounded-lg border border-border/60 bg-background/70 px-2.5 py-1 text-[10px] text-muted-foreground hover:text-foreground"
-              >
-                Open Full Impact
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsSnippetPopoverPinned((prev) => !prev)}
-                className={`rounded-lg border px-2.5 py-1 text-[10px] ${isSnippetPopoverPinned
-                    ? 'border-primary/40 bg-primary/10 text-primary'
-                    : 'border-border/60 bg-background/70 text-muted-foreground hover:text-foreground'
-                  }`}
-              >
-                {isSnippetPopoverPinned ? 'Unpin' : 'Pin'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="fixed bottom-4 right-4 z-40 xl:hidden">
-        <Button
-          type="button"
-          onClick={() => setIsMobileSnippetSheetOpen((prev) => !prev)}
-          className="rounded-xl bg-background/95 px-3 text-xs text-foreground shadow-xl"
-          variant="outline"
-        >
-          {isMobileSnippetSheetOpen ? 'Hide Snippet Impact' : 'Snippet Impact'}
-        </Button>
-      </div>
-
-      {isMobileSnippetSheetOpen && (
-        <div className="fixed inset-x-3 bottom-16 z-40 rounded-2xl border border-border/70 bg-background/95 p-3 shadow-2xl xl:hidden">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
-              Snippet Impact
-            </p>
-            <button
-              type="button"
-              onClick={() => setIsMobileSnippetSheetOpen(false)}
-              className="rounded-md border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
-            >
-              Close
-            </button>
-          </div>
-
-          {snippetState.selectedSnippet ? (
-            <pre className="mb-2 max-h-24 overflow-auto rounded-lg border border-border/60 bg-background/80 px-2 py-2 font-mono text-[10px] leading-4 text-foreground/90 custom-scrollbar">
-              {snippetState.selectedSnippet}
-            </pre>
-          ) : (
-            <p className="text-xs text-muted-foreground">Select a snippet to open impact details.</p>
-          )}
-
-          {snippetState.notice && (
-            <p className="mb-2 rounded-lg border border-border/60 bg-background/70 px-2 py-2 text-xs text-muted-foreground">
-              {snippetState.notice}
-            </p>
-          )}
-
-          {snippetState.status === 'loading' && (
-            <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" />
-              {snippetState.data ? 'Updating analysis...' : 'Analyzing snippet impact...'}
-            </div>
-          )}
-
-          {snippetState.status === 'failed' && snippetState.error && (
-            <div className="mb-2 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-2 py-2 text-xs text-destructive">
-              <AlertTriangle className="mt-0.5 size-3.5" />
-              <span>{snippetState.error}</span>
-            </div>
-          )}
-
-          {snippetState.data && renderSnippetImpactDetails({ compact: true })}
         </div>
       )}
     </section>
