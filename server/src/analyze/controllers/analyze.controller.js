@@ -707,6 +707,7 @@ export async function createPrCommitController(req, res, next) {
     const commitMessage = typeof req.body.commitMessage === 'string' ? req.body.commitMessage : `Update ${path} via PolyGlot`;
     const prTitle = typeof req.body.prTitle === 'string' ? req.body.prTitle : `Update ${path}`;
     const prBody = typeof req.body.prBody === 'string' ? req.body.prBody : '';
+    const createPullRequest = req.body.createPullRequest !== false;
     const sha = typeof req.body.sha === 'string' && req.body.sha ? req.body.sha : null;
 
     if (!owner || !repo || !path || content === null) {
@@ -819,18 +820,22 @@ export async function createPrCommitController(req, res, next) {
 
     const fileResp = await ghFetch('PUT', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodeURIComponent(path)}`, putBody);
 
-    // 3) Create Pull Request
-    const prResp = await ghFetch('POST', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`, {
-      title: prTitle,
-      head: headBranch,
-      base: baseBranch,
-      body: prBody,
-    });
+    let prResp = null;
+    if (createPullRequest) {
+      prResp = await ghFetch('POST', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`, {
+        title: prTitle,
+        head: headBranch,
+        base: baseBranch,
+        body: prBody,
+      });
+    }
 
     return res.status(200).json({
       ok: true,
       prUrl: prResp?.html_url || null,
       prNumber: prResp?.number || null,
+      savedBranch: headBranch,
+      baseBranch,
       file: {
         path: fileResp?.content?.path || path,
         sha: fileResp?.content?.sha || null,

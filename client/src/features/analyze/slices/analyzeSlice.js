@@ -192,7 +192,7 @@ export const saveRepositoryFile = createAsyncThunk(
 export const commitFile = createAsyncThunk(
   'analyze/commitFile',
   async (
-    { repository, path, content, sha, sourceBranch, targetBranch, branch, commitMessage, prTitle, prBody } = {},
+    { repository, path, content, sha, sourceBranch, targetBranch, branch, commitMessage, prTitle, prBody, createPullRequest } = {},
     { rejectWithValue, getState },
   ) => {
     const targetRepository = resolveRepository(getState, repository);
@@ -216,11 +216,40 @@ export const commitFile = createAsyncThunk(
         commitMessage,
         prTitle,
         prBody,
+        createPullRequest,
       });
 
       return payload;
     } catch (err) {
       return rejectWithValue(err?.response?.data?.error || err?.message || 'Failed to create PR.');
+    }
+  },
+);
+
+export const saveProtectedBranch = createAsyncThunk(
+  'analyze/saveProtectedBranch',
+  async ({ repository, path, content, sha, sourceBranch, targetBranch, commitMessage } = {}, { rejectWithValue, getState }) => {
+    const targetRepository = resolveRepository(getState, repository);
+
+    if (!targetRepository) {
+      return rejectWithValue('Select a repository from Upload Repo first.');
+    }
+
+    if (targetRepository.source !== 'github') {
+      return rejectWithValue('Only GitHub repositories are supported in Analyze Repository view.');
+    }
+
+    try {
+      return await analyzeService.saveProtectedBranch(targetRepository, {
+        path,
+        content,
+        sha,
+        sourceBranch,
+        targetBranch,
+        commitMessage,
+      });
+    } catch (err) {
+      return rejectWithValue(err?.response?.data?.error || err?.message || 'Failed to save protected branch.');
     }
   },
 );

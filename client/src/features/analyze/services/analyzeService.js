@@ -84,7 +84,7 @@ export const analyzeService = {
     };
   },
 
-  async commitCreatePR(repository, { path, content, sha, sourceBranch, targetBranch, branch, commitMessage, prTitle, prBody }) {
+  async commitCreatePR(repository, { path, content, sha, sourceBranch, targetBranch, branch, commitMessage, prTitle, prBody, createPullRequest }) {
     const payload = {
       ...buildRepoParams(repository),
       path: String(path || '').trim(),
@@ -96,6 +96,23 @@ export const analyzeService = {
       commitMessage: commitMessage || undefined,
       prTitle: prTitle || undefined,
       prBody: prBody || undefined,
+      createPullRequest,
+    };
+
+    const { data } = await analyzeClient.post('/api/analyze/commit', payload);
+    return data;
+  },
+
+  async saveProtectedBranch(repository, { path, content, sha, sourceBranch, targetBranch, commitMessage }) {
+    const payload = {
+      ...buildRepoParams(repository),
+      path: String(path || '').trim(),
+      content: String(content ?? ''),
+      sha: sha || undefined,
+      sourceBranch: sourceBranch || undefined,
+      targetBranch: targetBranch || undefined,
+      commitMessage: commitMessage || undefined,
+      createPullRequest: false,
     };
 
     const { data } = await analyzeClient.post('/api/analyze/commit', payload);
