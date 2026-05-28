@@ -508,77 +508,87 @@ router.post('/chat', async (req, res, next) => {
     return res.status(503).json({ error: 'Embedding provider is not configured.' });
   }
 
-  let clientClosed = false;
-  req.on('close', () => {
-    clientClosed = true;
-  });
+const abortController = new AbortController();
+    let clientClosed = false;
 
-  res.status(200);
-  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  if (typeof res.flushHeaders === 'function') res.flushHeaders();
-
-  try {
-    const userId = await resolveDatabaseUserId(authUser);
-    if (!userId) {
-      writeSseEvent(res, { type: 'error', message: 'Failed to resolve authenticated user.' });
-      return res.end();
-    }
-
-    const ownership = await pgPool.query(
-      `SELECT db_type FROM analysis_jobs WHERE id = $1 AND user_id = $2 LIMIT 1`,
-      [jobId, userId],
-    );
-
-    if (ownership.rowCount === 0) {
-      writeSseEvent(res, { type: 'error', message: 'Analysis job not found.' });
-      return res.end();
-    }
-
-    const dbType = ownership.rows[0]?.db_type || 'postgres';
-    const graphRepo = createGraphRepository(
-      dbType === 'neo4j' ? { nodeCount: 9999 } : {},
-      dbType === 'neo4j' ? { forceNeo4j: true } : { forcePostgres: true },
-    );
-
-    const agent = new ChatAgent({
-      graphRepo,
-      db: pgPool,
-      redis: redisClient,
-      llmClient: chatClient,
-      embeddingClient,
+    req.on('close', () => {
+      clientClosed = true;
+      abortController.abort();    // ← stops the ChatAgent pipeline immediately
     });
 
-    const result = await agent.process({
-      question,
-      jobId,
-      userId,
-      conversationId,
-      historyLimit,
-      onToken: (text) => {
-        if (!clientClosed) writeSseEvent(res, { type: 'chunk', text });
-      },
-    }, { jobId });
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
 
-    if (!clientClosed) {
-      writeSseEvent(res, {
-        type: 'done',
-        sources: result.data?.sources || [],
-        conversationId: result.data?.conversationId || null,
-        confidence: result.data?.confidence || 'low',
-        fallback: result.data?.fallback || false,
-        cached: result.data?.cacheHit || false,
+    try {
+      const userId = await resolveDatabaseUserId(authUser);
+      if (!userId) {
+        writeSseEvent(res, { type: 'error', message: 'Failed to resolve authenticated user.' });
+        return res.end();
+      }
+
+      const ownership = await pgPool.query(
+        `SELECT db_type FROM analysis_jobs WHERE id = $1 AND user_id = $2 LIMIT 1`,
+        [jobId, userId],
+      );
+
+      if (ownership.rowCount === 0) {
+        writeSseEvent(res, { type: 'error', message: 'Analysis job not found.' });
+        return res.end();
+      }
+
+      const dbType = ownership.rows[0]?.db_type || 'postgres';
+      const graphRepo = createGraphRepository(
+        dbType === 'neo4j' ? { nodeCount: 9999 } : {},
+        dbType === 'neo4j' ? { forceNeo4j: true } : { forcePostgres: true },
+      );
+
+      const agent = new ChatAgent({
+        graphRepo,
+        db: pgPool,
+        redis: redisClient,
+        llmClient: chatClient,
+        embeddingClient,
       });
-    }
 
-    if (!res.writableEnded) res.end();
-  } catch (error) {
-    if (!res.headersSent) return next(error);
-    writeSseEvent(res, { type: 'error', message: error.message || 'Chat failed.' });
-    if (!res.writableEnded) res.end();
-  }
+      const result = await agent.process({
+        question,
+        jobId,
+        userId,
+        conversationId,
+        historyLimit,
+        signal: abortController.signal,    // ← NEW
+        onToken: (text) => {
+          if (!clientClosed) writeSseEvent(res, { type: 'chunk', text });
+        },
+      }, { jobId });
+
+      if (!clientClosed) {
+        if (result.status === 'failed') {
+          // Emit an error event so the frontend shows the error UI, not a blank bubble
+          const errMsg = result.errors?.[0]?.message || 'Chat failed.';
+          writeSseEvent(res, { type: 'error', message: errMsg });
+        } else {
+          writeSseEvent(res, {
+            type: 'done',
+            sources: result.data?.sources || [],
+            conversationId: result.data?.conversationId || null,
+            confidence: result.data?.confidence || 'low',
+            fallback: result.data?.fallback || false,
+            cached: result.data?.cacheHit || false,
+          });
+        }
+      }
+
+      if (!res.writableEnded) res.end();
+    } catch (error) {
+      if (!res.headersSent) return next(error);
+      writeSseEvent(res, { type: 'error', message: error.message || 'Chat failed.' });
+      if (!res.writableEnded) res.end();
+    }
 });
 
 // ── GET /conversations ───────────────────────────────────────────────────────

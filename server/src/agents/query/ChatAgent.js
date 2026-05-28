@@ -149,6 +149,10 @@ export class ChatAgent extends BaseAgent {
     const errors = [];
     const warnings = [];
 
+    // ── NEW: wire up AbortSignal ─────────────────────────────────────────────
+    const signal = input?.signal instanceof AbortSignal ? input.signal : null;
+    const isAborted = () => signal?.aborted === true;
+
     const question = String(input?.question || '').trim();
     const jobId = String(input?.jobId || context?.jobId || '').trim();
     const userId = String(input?.userId || '').trim();
@@ -205,7 +209,7 @@ export class ChatAgent extends BaseAgent {
       // Cache is best-effort.
     }
 
-    let activeConversationId = conversationId;
+let activeConversationId = conversationId;
     if (activeConversationId) {
       const conversationCheck = await this.db.query(
         `SELECT 1 FROM conversations WHERE id = $1 AND user_id = $2 AND job_id = $3 LIMIT 1`,
@@ -214,121 +218,163 @@ export class ChatAgent extends BaseAgent {
       if (conversationCheck.rowCount === 0) activeConversationId = null;
     }
 
+    // ── NEW: guard after conversation resolution ─────────────────────
+    if (isAborted()) {
+      return this.buildResult({
+        jobId,
+        status: 'failed',
+        confidence: 0,
+        data: {},
+        errors: [{ code: 499, message: 'Request aborted by client.' }],
+        warnings,
+        metrics: {},
+        processingTimeMs: Date.now() - start,
+      });
+    }
+
     if (!activeConversationId) {
       const createdConversation = await this.db.query(
         `INSERT INTO conversations (user_id, job_id, title)
-         VALUES ($1, $2, $3)
-         RETURNING id`,
+          VALUES ($1, $2, $3)
+          RETURNING id`,
         [userId, jobId, question.slice(0, 80)],
       ).catch(() => ({ rows: [] }));
       activeConversationId = createdConversation.rows[0]?.id || null;
     }
 
-    let history = [];
+let history = [];
     if (activeConversationId) {
       const historyResult = await this.db.query(
         `SELECT role, content
-         FROM (
-           SELECT role, content, created_at
-           FROM conversation_messages
-           WHERE conversation_id = $1
-           ORDER BY created_at DESC
-           LIMIT $2
-         ) AS recent_messages
-         ORDER BY created_at ASC`,
+          FROM (
+            SELECT role, content, created_at
+            FROM conversation_messages
+            WHERE conversation_id = $1
+            ORDER BY created_at DESC
+            LIMIT $2
+          ) AS recent_messages
+          ORDER BY created_at ASC`,
         [activeConversationId, historyLimit * 2],
       ).catch(() => ({ rows: [] }));
       history = historyResult.rows.map((row) => ({ role: row.role, content: row.content }));
+    }
+
+    // ── NEW: guard after history load ───────────────────────────────────
+    if (isAborted()) {
+      return this.buildResult({
+        jobId,
+        status: 'failed',
+        confidence: 0,
+        data: {},
+        errors: [{ code: 499, message: 'Request aborted by client.' }],
+        warnings,
+        metrics: {},
+        processingTimeMs: Date.now() - start,
+      });
     }
 
     let contextEntries = [];
     let embeddingTokens = 0;
     let completionTokens = 0;
 
-    if (this.embeddingClient.isConfigured()) {
-      try {
-        const embeddingResponse = await this.embeddingClient.createEmbedding({
-          model: this.embeddingClient.model,
-          input: question,
-        });
-
-        embeddingTokens = Number(embeddingResponse?.usage?.total_tokens || 0);
-        const vectorLiteral = toVectorLiteral(embeddingResponse?.data?.[0]?.embedding);
-
-        if (vectorLiteral) {
-          const semanticResult = await this.db.query(
-            `SELECT fe.file_path, fe.embedding <=> $1::vector AS distance
-             FROM file_embeddings fe
-             WHERE fe.job_id = $2
-             ORDER BY fe.embedding <=> $1::vector
-             LIMIT $3`,
-            [vectorLiteral, jobId, SEMANTIC_LIMIT],
-          ).catch(() => ({ rows: [] }));
-
-          const semanticRows = Array.isArray(semanticResult.rows) ? semanticResult.rows : [];
-          const seedPaths = semanticRows.map((row) => row.file_path).filter(Boolean);
-          const distanceMap = new Map(semanticRows.map((row) => [row.file_path, Number(row.distance)]));
-
-          const enriched = await this.expander.getEnrichedContext(seedPaths, jobId, {
-            maxFiles: CONTEXT_FILE_LIMIT,
-            seedLimit: 5,
+if (this.embeddingClient.isConfigured()) {
+        try {
+          const embeddingResponse = await this.embeddingClient.createEmbedding({
+            model: this.embeddingClient.model,
+            input: question,
           });
 
-          contextEntries = enriched.map((entry) => ({
-            ...entry,
-            distance: distanceMap.get(entry.filePath) ?? entry.distance,
-            functionMatches: [],
-          }));
+          embeddingTokens = Number(embeddingResponse?.usage?.total_tokens || 0);
+          const vectorLiteral = toVectorLiteral(embeddingResponse?.data?.[0]?.embedding);
 
-          try {
-            const functionResult = await this.db.query(
-              `SELECT file_path, function_name, body_summary, embedding <=> $1::vector AS distance
-               FROM function_embeddings
-               WHERE job_id = $2
-               ORDER BY embedding <=> $1::vector
-               LIMIT 12`,
-              [vectorLiteral, jobId],
-            );
+          if (vectorLiteral) {
+            const semanticResult = await this.db.query(
+              `SELECT fe.file_path, fe.embedding <=> $1::vector AS distance
+               FROM file_embeddings fe
+               WHERE fe.job_id = $2
+               ORDER BY fe.embedding <=> $1::vector
+               LIMIT $3`,
+              [vectorLiteral, jobId, SEMANTIC_LIMIT],
+            ).catch(() => ({ rows: [] }));
 
-            const functionsByFile = new Map();
-            const highScoringFiles = new Set();
-            for (const row of functionResult.rows || []) {
-              if (!row.file_path) continue;
-              if (!functionsByFile.has(row.file_path)) functionsByFile.set(row.file_path, []);
-              functionsByFile.get(row.file_path).push({
-                functionName: row.function_name,
-                bodySummary: row.body_summary,
-                distance: Number(row.distance),
-              });
-              if (Number(row.distance) < 0.35) highScoringFiles.add(row.file_path);
+            const semanticRows = Array.isArray(semanticResult.rows) ? semanticResult.rows : [];
+            const seedPaths = semanticRows.map((row) => row.file_path).filter(Boolean);
+            const distanceMap = new Map(semanticRows.map((row) => [row.file_path, Number(row.distance)]));
+
+            const enriched = await this.expander.getEnrichedContext(seedPaths, jobId, {
+              maxFiles: CONTEXT_FILE_LIMIT,
+              seedLimit: 5,
+            });
+
+            contextEntries = enriched.map((entry) => ({
+              ...entry,
+              distance: distanceMap.get(entry.filePath) ?? entry.distance,
+              functionMatches: [],
+            }));
+
+            try {
+              const functionResult = await this.db.query(
+                `SELECT file_path, function_name, body_summary, embedding <=> $1::vector AS distance
+                 FROM function_embeddings
+                 WHERE job_id = $2
+                 ORDER BY embedding <=> $1::vector
+                 LIMIT 12`,
+                [vectorLiteral, jobId],
+              );
+
+              const functionsByFile = new Map();
+              const highScoringFiles = new Set();
+              for (const row of functionResult.rows || []) {
+                if (!row.file_path) continue;
+                if (!functionsByFile.has(row.file_path)) functionsByFile.set(row.file_path, []);
+                functionsByFile.get(row.file_path).push({
+                  functionName: row.function_name,
+                  bodySummary: row.body_summary,
+                  distance: Number(row.distance),
+                });
+                if (Number(row.distance) < 0.35) highScoringFiles.add(row.file_path);
+              }
+
+              contextEntries = contextEntries.map((entry) => ({
+                ...entry,
+                functionMatches: functionsByFile.get(entry.filePath) || [],
+                _fnBoost: highScoringFiles.has(entry.filePath) ? 0.2 : 0,
+              }));
+            } catch {
+              // Function embeddings are additive context; file-level RAG still works without them.
             }
 
-            contextEntries = contextEntries.map((entry) => ({
-              ...entry,
-              functionMatches: functionsByFile.get(entry.filePath) || [],
-              _fnBoost: highScoringFiles.has(entry.filePath) ? 0.2 : 0,
-            }));
-          } catch {
-            // Function embeddings are additive context; file-level RAG still works without them.
+            contextEntries = keywordRerank(question, contextEntries)
+              .map((entry) => ({ ...entry, _score: (entry._score || 0) + (entry._fnBoost || 0) }))
+              .sort((a, b) => b._score - a._score)
+              .slice(0, CONTEXT_FILE_LIMIT);
           }
-
-          contextEntries = keywordRerank(question, contextEntries)
-            .map((entry) => ({ ...entry, _score: (entry._score || 0) + (entry._fnBoost || 0) }))
-            .sort((a, b) => b._score - a._score)
-            .slice(0, CONTEXT_FILE_LIMIT);
+        } catch (error) {
+          warnings.push(`Embedding failed: ${error.message}`);
         }
-      } catch (error) {
-        warnings.push(`Embedding failed: ${error.message}`);
+      } else {
+        warnings.push('Embedding provider is not configured; no RAG context was retrieved.');
       }
-    } else {
-      warnings.push('Embedding provider is not configured; no RAG context was retrieved.');
-    }
 
-    const messages = [
-      { role: 'system', content: buildSystemPrompt(buildContextBlock(contextEntries)) },
-      ...history,
-      { role: 'user', content: question },
-    ];
+      // ── NEW: guard after context retrieval ────────────────────────────────
+      if (isAborted()) {
+        return this.buildResult({
+          jobId,
+          status: 'failed',
+          confidence: 0,
+          data: {},
+          errors: [{ code: 499, message: 'Request aborted by client.' }],
+          warnings,
+          metrics: {},
+          processingTimeMs: Date.now() - start,
+        });
+      }
+
+      const messages = [
+        { role: 'system', content: buildSystemPrompt(buildContextBlock(contextEntries)) },
+        ...history,
+        { role: 'user', content: question },
+      ];
 
     let fullText = '';
     let streamError = null;
@@ -338,7 +384,9 @@ export class ChatAgent extends BaseAgent {
         model: this.llmClient.model,
         maxTokens: 800,
         messages,
+        signal,                // ← NEW: pass AbortSignal to the LLM client
         onText: (text) => {
+          if (isAborted()) return;  // ← NEW: stop accumulating if aborted
           fullText += text;
           onToken?.(text);
         },
@@ -347,6 +395,19 @@ export class ChatAgent extends BaseAgent {
       await streamSession.consume();
       completionTokens = Number(streamSession?.usage?.completion_tokens || 0);
     } catch (error) {
+      if (isAborted()) {
+        // Client disconnected — don't persist, don't cache
+        return this.buildResult({
+          jobId,
+          status: 'failed',
+          confidence: 0,
+          data: {},
+          errors: [{ code: 499, message: 'Request aborted by client.' }],
+          warnings,
+          metrics: {},
+          processingTimeMs: Date.now() - start,
+        });
+      }
       streamError = error;
       warnings.push(`LLM stream failed: ${error.message}`);
       fullText = buildProviderFallback(question, contextEntries);
@@ -361,9 +422,25 @@ export class ChatAgent extends BaseAgent {
     }
 
     const sourcePaths = contextEntries.map((entry) => entry.filePath).filter(Boolean);
-    const confidence = streamError ? 'low' : contextEntries.length >= 3 ? 'medium' : 'low';
+    function deriveConfidence(streamError, contextEntries) {
+      if (streamError) return 'low';
+      if (!contextEntries.length) return 'low';
 
-    if (activeConversationId && fullText) {
+      // 'high' = no stream error + top result is very close match + enough context
+      const topDistance = Number(contextEntries[0]?.distance ?? 1);
+      if (!streamError && topDistance < 0.20 && contextEntries.length >= 3) return 'high';
+
+      // 'medium' = successful stream + some relevant context
+      if (contextEntries.length >= 3) return 'medium';
+      if (contextEntries.length >= 1) return 'medium';
+
+      return 'low';
+    }
+
+    const confidence = deriveConfidence(streamError, contextEntries);
+
+    // Guard before persistence — don't INSERT if aborted:
+    if (!isAborted() && activeConversationId && fullText) {
       Promise.all([
         this.db.query(
           `INSERT INTO conversation_messages (conversation_id, role, content)
@@ -379,7 +456,8 @@ export class ChatAgent extends BaseAgent {
       ]).catch((error) => console.error('[ChatAgent] turn persistence failed:', error.message));
     }
 
-    if (fullText && !streamError) {
+    // Guard before cache write:
+    if (!isAborted() && fullText && !streamError) {
       const cachePayload = JSON.stringify({
         text: fullText,
         sources: sourcePaths,
