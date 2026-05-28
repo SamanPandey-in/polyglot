@@ -83,4 +83,21 @@ export const analyzeService = {
       file: data?.file || null,
     };
   },
+
+  async commitCreatePR(repository, { path, content, sha, base, head, commitMessage, prTitle, prBody }) {
+    const payload = {
+      ...buildRepoParams(repository),
+      path: String(path || '').trim(),
+      content: String(content ?? ''),
+      sha: sha || undefined,
+      base: base || undefined,
+      head: head || undefined,
+      commitMessage: commitMessage || undefined,
+      prTitle: prTitle || undefined,
+      prBody: prBody || undefined,
+    };
+
+    const { data } = await analyzeClient.post('/api/analyze/commit', payload);
+    return data;
+  },
 };

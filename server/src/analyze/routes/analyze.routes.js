@@ -22,6 +22,7 @@ import {
   resolvePublicRepoController,
   updateRepositoryFileController,
   validateLocalPathController,
+  createPrCommitController,
 } from '../controllers/analyze.controller.js';
 
 const router = Router();
@@ -46,5 +47,6 @@ router.get('/github/structure', analyzeLimiter, validateRepoBrowserQuery, listRe
 router.get('/github/contents', analyzeLimiter, validateRepoBrowserQuery, listRepositoryDirectoryController);
 router.get('/github/file', analyzeLimiter, validateRepoFileQuery, getRepositoryFileController);
 router.put('/github/file', analyzeLimiter, validateRepoFileUpdateBody, updateRepositoryFileController);
+router.post('/commit', analyzeLimiter, createPrCommitController);
 
 export default router;

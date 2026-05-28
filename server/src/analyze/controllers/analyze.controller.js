@@ -678,3 +678,107 @@ export async function updateRepositoryFileController(req, res, next) {
     return next(err);
   }
 }
+
+export async function createPrCommitController(req, res, next) {
+  try {
+    const token = req.cookies?.github_token;
+    if (!token) {
+      const err = new Error('GitHub authentication required to create a PR.');
+      err.statusCode = 401;
+      throw err;
+    }
+
+    const owner = typeof req.body.owner === 'string' ? req.body.owner.trim() : '';
+    const repo = typeof req.body.repo === 'string' ? req.body.repo.trim() : '';
+    const path = typeof req.body.path === 'string' ? req.body.path.trim() : '';
+    const content = typeof req.body.content === 'string' ? req.body.content : null;
+    const base = typeof req.body.base === 'string' && req.body.base ? req.body.base : 'main';
+    const head = typeof req.body.head === 'string' && req.body.head ? req.body.head : null; // new branch
+    const commitMessage = typeof req.body.commitMessage === 'string' ? req.body.commitMessage : `Update ${path} via PolyGlot`;
+    const prTitle = typeof req.body.prTitle === 'string' ? req.body.prTitle : `Update ${path}`;
+    const prBody = typeof req.body.prBody === 'string' ? req.body.prBody : '';
+    const sha = typeof req.body.sha === 'string' && req.body.sha ? req.body.sha : null;
+
+    if (!owner || !repo || !path || content === null) {
+      const err = new Error('Missing required parameters: owner, repo, path, content');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    // Helper to call GitHub API
+    const ghFetch = async (method, apiPath, body) => {
+      const url = `https://api.github.com${apiPath}`;
+      const resp = await fetch(url, {
+        method,
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'polyglot',
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '');
+        const err = new Error(`GitHub API ${method} ${apiPath} failed: ${resp.status} ${text}`);
+        err.statusCode = resp.status;
+        throw err;
+      }
+      return resp.json();
+    };
+
+    // 1) Ensure head branch exists (create from base if provided)
+    let headBranch = head || `${base}-polyglot-${Date.now()}`;
+    try {
+      // Check if head exists
+      await ghFetch('GET', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/ref/heads/${encodeURIComponent(headBranch)}`);
+    } catch (err) {
+      // create head from base
+      const baseRef = await ghFetch('GET', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/ref/heads/${encodeURIComponent(base)}`);
+      const baseSha = baseRef?.object?.sha || baseRef?.object?.sha;
+      if (!baseSha) {
+        const e = new Error('Could not determine base branch SHA to create new branch.');
+        e.statusCode = 500;
+        throw e;
+      }
+
+      await ghFetch('POST', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/refs`, {
+        ref: `refs/heads/${headBranch}`,
+        sha: baseSha,
+      });
+    }
+
+    // 2) Create or update file on head branch
+    const encoded = Buffer.from(String(content), 'utf8').toString('base64');
+    const putBody = {
+      message: commitMessage,
+      content: encoded,
+      branch: headBranch,
+    };
+    if (sha) putBody.sha = sha;
+
+    const fileResp = await ghFetch('PUT', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodeURIComponent(path)}`, putBody);
+
+    // 3) Create Pull Request
+    const prResp = await ghFetch('POST', `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`, {
+      title: prTitle,
+      head: headBranch,
+      base,
+      body: prBody,
+    });
+
+    return res.status(200).json({
+      ok: true,
+      prUrl: prResp?.html_url || null,
+      prNumber: prResp?.number || null,
+      file: {
+        path: fileResp?.content?.path || path,
+        sha: fileResp?.content?.sha || null,
+        htmlUrl: fileResp?.content?.html_url || null,
+        commitSha: fileResp?.commit?.sha || null,
+      },
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
