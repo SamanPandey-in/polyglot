@@ -175,7 +175,7 @@ async function run() {
         if (declNode) {
           const startLine = declNode.startPosition.row + 1;
           const endLine = declNode.endPosition.row + 1;
-          loc = { startLine, endLine };
+          loc = Math.max(1, endLine - startLine + 1);
           const lines = source.split(/\r?\n/);
           bodySource = lines.slice(startLine - 1, endLine).join('\n');
         }
@@ -190,6 +190,7 @@ async function run() {
     imports,
     declarations,
     functionNodes,
+    rawContent: source,
     metrics: {
       loc: source.split(/\r?\n/).length,
       importCount: imports.length,

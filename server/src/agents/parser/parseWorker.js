@@ -86,11 +86,24 @@ function pushFunctionNode(functionNodes, seenNames, declarationNames, { name, ki
 
   seenNames.add(name);
 
+  let bodySource = null;
+  try {
+    const start = locNode?.loc?.start?.line;
+    const end = locNode?.loc?.end?.line;
+    if (Number.isFinite(start) && Number.isFinite(end)) {
+      const lines = code.split(/\r?\n/);
+      bodySource = lines.slice(start - 1, end).join('\n');
+    }
+  } catch (e) {
+    bodySource = null;
+  }
+
   functionNodes.push({
     name,
     kind,
     calls: collectCallsInNode(body, declarationNames, name),
     loc: declarationLoc(locNode),
+    bodySource,
   });
 }
 
@@ -219,6 +232,7 @@ async function run() {
     imports,
     declarations,
     functionNodes,
+    rawContent: code,
     metrics: {
       loc: code.split(/\r?\n/).length,
       importCount: imports.length,
