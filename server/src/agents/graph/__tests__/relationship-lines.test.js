@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { RelationshipExtractorAgent } from '../../RelationshipExtractorAgent.js';
+import { RelationshipExtractorAgent } from '../RelationshipExtractorAgent.js';
 
 describe('RelationshipExtractorAgent line capture', () => {
   let tmpDir;

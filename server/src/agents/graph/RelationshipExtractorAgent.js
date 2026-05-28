@@ -51,6 +51,13 @@ async function classifyFile(absolutePath, relativePath, parsedNode, fileFunction
   const ext = path.extname(absolutePath).toLowerCase();
   const typedEdges = [];
   const dedupe = new Set();
+  let content = '';
+  try {
+    content = await readFile(absolutePath, 'utf8');
+  } catch {
+    // leave content empty if file read fails
+    content = '';
+  }
 
   for (const dep of parsedNode?.deps || []) {
     try {
@@ -65,7 +72,6 @@ async function classifyFile(absolutePath, relativePath, parsedNode, fileFunction
       addEdge(typedEdges, dedupe, relativePath, dep, 'IMPORTS');
     }
   }
-
   for (const fn of Array.isArray(fileFunctionNodes) ? fileFunctionNodes : []) {
     const fnBody = fn?.bodySource || null;
     for (const callee of fn?.calls || []) {
@@ -97,13 +103,6 @@ async function classifyFile(absolutePath, relativePath, parsedNode, fileFunction
         addEdge(typedEdges, dedupe, relativePath, `symbol:${callee}`, 'CALLS');
       }
     }
-  }
-
-  let content = '';
-  try {
-    content = await readFile(absolutePath, 'utf8');
-  } catch {
-    return typedEdges;
   }
 
   const routes = [

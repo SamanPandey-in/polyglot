@@ -33,6 +33,7 @@ import {
   selectAnalyzeFile,
   selectAnalyzeSelectedRepository,
   selectAnalyzeStructure,
+  commitFile,
 } from '../slices/analyzeSlice';
 import { AiPanel } from '@/features/ai';
 import { loadSavedGraph, selectGraphData } from '@/features/graph';
@@ -242,6 +243,43 @@ export default function AnalyzeFilePage() {
     );
 
     setIsEditing(false);
+  };
+
+  const handleCreatePR = async () => {
+    if (!selectedRepository || !selectedFilePath) return;
+
+    const currentContent = isEditing ? editorValue : fileState.data?.content || '';
+    const defaultBase = selectedRepository.branch || selectedRepository.defaultBranch || 'main';
+    const base = window.prompt('Base branch (target)', defaultBase) || defaultBase;
+    const headDefault = `${base}-polyglot-${Date.now()}`;
+    const head = window.prompt('Head branch (new)', headDefault) || headDefault;
+    const prTitle = window.prompt('PR title', `Update ${selectedFilePath}`) || `Update ${selectedFilePath}`;
+    const prBody = window.prompt('PR body (optional)', '') || '';
+    const commitMessage = window.prompt('Commit message', `Update ${selectedFilePath} via PolyGlot`) || `Update ${selectedFilePath} via PolyGlot`;
+
+    try {
+      const result = await dispatch(
+        commitFile({
+          repository: selectedRepository,
+          path: selectedFilePath,
+          content: currentContent,
+          sha: fileState.data?.sha || undefined,
+          base,
+          head,
+          commitMessage,
+          prTitle,
+          prBody,
+        }),
+      ).unwrap();
+
+      if (result && result.prUrl) {
+        window.open(result.prUrl, '_blank');
+      } else {
+        alert('PR created');
+      }
+    } catch (err) {
+      alert(`Failed to create PR: ${err?.message || err}`);
+    }
   };
 
 
@@ -914,6 +952,15 @@ export default function AnalyzeFilePage() {
                     >
                       <Save className="size-3.5" />
                       {fileState.saveStatus === 'loading' ? 'Saving...' : 'Save'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleCreatePR}
+                      disabled={!fileState.canEdit}
+                      className="rounded-xl ml-2 shadow-neu-inset border-none bg-background/50 active-scale"
+                    >
+                      Create PR
                     </Button>
                   </>
                 )}
