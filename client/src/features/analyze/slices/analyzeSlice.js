@@ -192,7 +192,7 @@ export const saveRepositoryFile = createAsyncThunk(
 export const commitFile = createAsyncThunk(
   'analyze/commitFile',
   async (
-    { repository, path, content, sha, branch, commitMessage, prTitle, prBody } = {},
+    { repository, path, content, sha, sourceBranch, targetBranch, branch, commitMessage, prTitle, prBody } = {},
     { rejectWithValue, getState },
   ) => {
     const targetRepository = resolveRepository(getState, repository);
@@ -210,6 +210,8 @@ export const commitFile = createAsyncThunk(
         path,
         content,
         sha,
+        sourceBranch,
+        targetBranch,
         branch,
         commitMessage,
         prTitle,

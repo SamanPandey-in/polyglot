@@ -37,6 +37,7 @@ import {
 } from '../slices/analyzeSlice';
 import { AiPanel } from '@/features/ai';
 import { loadSavedGraph, selectGraphData } from '@/features/graph';
+import { graphService } from '@/features/graph/services/graphService';
 import { aiService } from '@/features/ai/services/aiService';
 
 function detectPrismLanguage(filePath = '') {
@@ -119,11 +120,17 @@ export default function AnalyzeFilePage() {
   });
   const [isCreatePrModalOpen, setIsCreatePrModalOpen] = useState(false);
   const [createPrState, setCreatePrState] = useState({
-    branch: '',
+    sourceBranch: '',
+    targetBranch: '',
     commitMessage: '',
+    prTitle: '',
+    prBody: '',
     isSubmitting: false,
     error: '',
   });
+  const [createPrBranches, setCreatePrBranches] = useState([]);
+  const [createPrBranchesLoading, setCreatePrBranchesLoading] = useState(false);
+  const [createPrBranchesError, setCreatePrBranchesError] = useState('');
   const [isSnippetDrawerOpen, setIsSnippetDrawerOpen] = useState(false);
   const [isMobileSnippetSheetOpen, setIsMobileSnippetSheetOpen] = useState(false);
   const [isSnippetPopoverPinned, setIsSnippetPopoverPinned] = useState(false);
@@ -197,6 +204,59 @@ export default function AnalyzeFilePage() {
   }, [fileState.data?.content, fileState.data?.path]);
 
   useEffect(() => {
+    if (!isCreatePrModalOpen || !selectedRepository?.owner || !selectedRepository?.repo) return;
+
+    let cancelled = false;
+    const loadBranches = async () => {
+      setCreatePrBranchesLoading(true);
+      setCreatePrBranchesError('');
+
+      try {
+        const payload = await graphService.getRepoBranches({
+          source: selectedRepository.mode === 'owned' ? 'owned' : 'public',
+          owner: selectedRepository.owner,
+          repo: selectedRepository.repo,
+          url: selectedRepository.url || undefined,
+        });
+
+        if (cancelled) return;
+
+        const branches = Array.isArray(payload?.branches) ? payload.branches.map((item) => item?.name).filter(Boolean) : [];
+        setCreatePrBranches(branches);
+
+        setCreatePrState((prev) => {
+          const currentSource = String(prev.sourceBranch || '').trim();
+          const currentTarget = String(prev.targetBranch || '').trim();
+
+          const fallbackTarget = selectedRepository.defaultBranch || selectedRepository.branch || branches[0] || 'main';
+          const fallbackSource = currentTarget && currentTarget !== 'main' ? currentTarget : `${fallbackTarget}-polyglot-${Date.now()}`;
+
+          if (currentSource && currentTarget && branches.includes(currentSource) && branches.includes(currentTarget)) return prev;
+
+          return {
+            ...prev,
+            sourceBranch: currentSource || fallbackSource,
+            targetBranch: currentTarget || fallbackTarget,
+          };
+        });
+      } catch (error) {
+        if (!cancelled) {
+          setCreatePrBranches([]);
+          setCreatePrBranchesError(error?.response?.data?.error || error?.message || 'Failed to load branches.');
+        }
+      } finally {
+        if (!cancelled) setCreatePrBranchesLoading(false);
+      }
+    };
+
+    loadBranches();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isCreatePrModalOpen, selectedRepository?.owner, selectedRepository?.repo, selectedRepository?.mode, selectedRepository?.url, selectedRepository?.defaultBranch, selectedRepository?.branch]);
+
+  useEffect(() => {
     return () => {
       if (snippetDebounceRef.current) {
         clearTimeout(snippetDebounceRef.current);
@@ -255,11 +315,15 @@ export default function AnalyzeFilePage() {
   const handleCreatePR = async () => {
     if (!selectedRepository || !selectedFilePath) return;
 
-    const defaultBase = selectedRepository.defaultBranch || selectedRepository.branch || 'main';
+    const defaultTarget = selectedRepository.defaultBranch || selectedRepository.branch || 'main';
+    const sanitizedName = selectedFilePath.replace(/[^a-z0-9._/-]+/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'file';
 
     setCreatePrState({
-      branch: defaultBase,
+      sourceBranch: `${defaultTarget}-polyglot-${sanitizedName}`,
+      targetBranch: defaultTarget,
       commitMessage: `Update ${selectedFilePath} via PolyGlot`,
+      prTitle: `Update ${selectedFilePath}`,
+      prBody: `This PR updates ${selectedFilePath} via PolyGlot.\n\n- Source branch: ${defaultTarget}-polyglot-${sanitizedName}\n- Target branch: ${defaultTarget}`,
       isSubmitting: false,
       error: '',
     });
@@ -270,7 +334,18 @@ export default function AnalyzeFilePage() {
     if (!selectedRepository || !selectedFilePath) return;
 
     const currentContent = isEditing ? editorValue : fileState.data?.content || '';
-    const branch = String(createPrState.branch || '').trim() || selectedRepository.defaultBranch || selectedRepository.branch || 'main';
+    const sourceBranch = String(createPrState.sourceBranch || '').trim();
+    const targetBranch = String(createPrState.targetBranch || '').trim() || selectedRepository.defaultBranch || selectedRepository.branch || 'main';
+
+    if (!sourceBranch) {
+      setCreatePrState((prev) => ({ ...prev, isSubmitting: false, error: 'Choose a source branch for the PR.' }));
+      return;
+    }
+
+    if (sourceBranch === 'main' || sourceBranch === targetBranch && sourceBranch === 'main') {
+      setCreatePrState((prev) => ({ ...prev, isSubmitting: false, error: 'Committing to the main branch is not allowed.' }));
+      return;
+    }
 
     setCreatePrState((prev) => ({ ...prev, isSubmitting: true, error: '' }));
 
@@ -281,8 +356,11 @@ export default function AnalyzeFilePage() {
           path: selectedFilePath,
           content: currentContent,
           sha: fileState.data?.sha || undefined,
-          branch,
+          sourceBranch,
+          targetBranch,
           commitMessage: createPrState.commitMessage,
+          prTitle: createPrState.prTitle,
+          prBody: createPrState.prBody,
         }),
       ).unwrap();
 
@@ -302,6 +380,29 @@ export default function AnalyzeFilePage() {
 
 
   const backToExplorer = `/analyze/${encodeURIComponent(routeDirectory)}?path=${encodeURIComponent(currentPath)}`;
+
+  const createPrSourceBranchOptions = useMemo(() => {
+    const currentTarget = String(createPrState.targetBranch || '').trim();
+    const branchOptions = createPrBranches.filter((branch) => branch && branch !== 'main' && branch !== currentTarget);
+    const currentSource = String(createPrState.sourceBranch || '').trim();
+
+    if (currentSource && !branchOptions.includes(currentSource)) {
+      return [currentSource, ...branchOptions];
+    }
+
+    return branchOptions;
+  }, [createPrBranches, createPrState.sourceBranch, createPrState.targetBranch]);
+
+  const createPrTargetBranchOptions = useMemo(() => {
+    const branchOptions = createPrBranches.filter(Boolean);
+    const currentTarget = String(createPrState.targetBranch || '').trim();
+
+    if (currentTarget && !branchOptions.includes(currentTarget)) {
+      return [currentTarget, ...branchOptions];
+    }
+
+    return branchOptions;
+  }, [createPrBranches, createPrState.targetBranch]);
 
   const aiGraph = useMemo(() => {
     const graphObject = graphData?.graph;
@@ -1251,14 +1352,47 @@ export default function AnalyzeFilePage() {
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-1 text-sm">
                 <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
-                  Branch
+                  From branch
                 </span>
-                <input
-                  value={createPrState.branch}
-                  onChange={(event) => setCreatePrState((prev) => ({ ...prev, branch: event.target.value }))}
+                <select
+                  value={createPrState.sourceBranch}
+                  onChange={(event) => setCreatePrState((prev) => ({ ...prev, sourceBranch: event.target.value }))}
                   className="w-full rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm outline-none"
-                  placeholder={selectedRepository?.defaultBranch || 'main'}
-                />
+                  disabled={createPrBranchesLoading}
+                >
+                  {(createPrSourceBranchOptions.length > 0 ? createPrSourceBranchOptions : [`${selectedRepository?.defaultBranch || selectedRepository?.branch || 'main'}-polyglot`])
+                    .filter(Boolean)
+                    .map((branch) => (
+                      <option key={branch} value={branch}>
+                        {branch}
+                      </option>
+                    ))}
+                </select>
+                <p className="text-[11px] text-muted-foreground">This branch will receive the commit and become the PR head.</p>
+                {createPrBranchesError && (
+                  <p className="text-xs text-muted-foreground">{createPrBranchesError}</p>
+                )}
+              </label>
+
+              <label className="space-y-1 text-sm">
+                <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
+                  To branch
+                </span>
+                <select
+                  value={createPrState.targetBranch}
+                  onChange={(event) => setCreatePrState((prev) => ({ ...prev, targetBranch: event.target.value }))}
+                  className="w-full rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm outline-none"
+                  disabled={createPrBranchesLoading}
+                >
+                  {(createPrTargetBranchOptions.length > 0 ? createPrTargetBranchOptions : [selectedRepository?.defaultBranch || selectedRepository?.branch || 'main'])
+                    .filter(Boolean)
+                    .map((branch) => (
+                      <option key={branch} value={branch}>
+                        {branch}
+                      </option>
+                    ))}
+                </select>
+                <p className="text-[11px] text-muted-foreground">The PR will target this branch.</p>
               </label>
 
               <label className="space-y-1 text-sm md:col-span-2">
@@ -1269,6 +1403,28 @@ export default function AnalyzeFilePage() {
                   value={createPrState.commitMessage}
                   onChange={(event) => setCreatePrState((prev) => ({ ...prev, commitMessage: event.target.value }))}
                   className="w-full rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm outline-none"
+                />
+              </label>
+
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
+                  PR title
+                </span>
+                <input
+                  value={createPrState.prTitle}
+                  onChange={(event) => setCreatePrState((prev) => ({ ...prev, prTitle: event.target.value }))}
+                  className="w-full rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm outline-none"
+                />
+              </label>
+
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
+                  PR body
+                </span>
+                <textarea
+                  value={createPrState.prBody}
+                  onChange={(event) => setCreatePrState((prev) => ({ ...prev, prBody: event.target.value }))}
+                  className="min-h-32 w-full rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm outline-none"
                 />
               </label>
             </div>

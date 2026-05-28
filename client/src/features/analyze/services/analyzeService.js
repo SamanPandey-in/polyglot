@@ -84,13 +84,15 @@ export const analyzeService = {
     };
   },
 
-  async commitCreatePR(repository, { path, content, sha, branch, commitMessage, prTitle, prBody }) {
+  async commitCreatePR(repository, { path, content, sha, sourceBranch, targetBranch, branch, commitMessage, prTitle, prBody }) {
     const payload = {
       ...buildRepoParams(repository),
       path: String(path || '').trim(),
       content: String(content ?? ''),
       sha: sha || undefined,
       branch: branch || undefined,
+      sourceBranch: sourceBranch || undefined,
+      targetBranch: targetBranch || undefined,
       commitMessage: commitMessage || undefined,
       prTitle: prTitle || undefined,
       prBody: prBody || undefined,
