@@ -392,6 +392,15 @@ export async function listOwnedReposController(req, res, next) {
       });
     }
 
+    if (err.statusCode === 404) {
+      return res.status(401).json({
+        error: 'GitHub token is missing, expired, or no longer authorized. Please reconnect GitHub.',
+        loginUrl: '/api/auth/github?reauth=1',
+        action:
+          'Reconnect GitHub to refresh your token and repository access. If this persists, revoke the app authorization in GitHub Settings > Applications and connect again.',
+      });
+    }
+
     if (err.statusCode === 403 && err.code === 'INSUFFICIENT_SCOPE') {
       return res.status(403).json({
         error: err.message,

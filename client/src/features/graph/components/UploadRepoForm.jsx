@@ -269,7 +269,7 @@ export default function UploadRepoForm() {
         setOwnedReposError('No repositories found in your GitHub account.');
       }
     } catch (err) {
-      const authRequired = err?.response?.status === 401;
+      const authRequired = err?.response?.status === 401 || err?.response?.status === 404;
       const scopeRequired = err?.response?.status === 403;
       const loginUrl = err?.response?.data?.loginUrl;
       setOwnedRepos([]);
