@@ -1,4 +1,5 @@
 import { IngestionAgent } from '../ingestion/IngestionAgent.js';
+import path from 'path';
 import { ScannerAgent } from '../scanner/ScannerAgent.js';
 import { PolyglotParserAgent } from '../parser/PolyglotParserAgent.js';
 import { GraphBuilderAgent } from '../graph/GraphBuilderAgent.js';
@@ -69,6 +70,52 @@ export class SupervisorAgent {
       agentTrace.push(scanResult);
       if (scanResult.status === 'failed') return this._abort(jobId, scanResult, agentTrace);
       Object.assign(pipelineData, scanResult.data);
+
+      // Persist directories hierarchy (if repositoryId provided)
+      try {
+        const repositoryId = input?.repositoryId || null;
+        if (repositoryId && Array.isArray(pipelineData.manifest) && pipelineData.manifest.length > 0) {
+          const dirSet = new Set();
+          for (const item of pipelineData.manifest) {
+            if (!item || !item.relativePath) continue;
+            const dir = path.posix.dirname(item.relativePath || '.') || '.';
+            if (dir && dir !== '.') {
+              // add all ancestor directories
+              let cur = dir;
+              while (cur && cur !== '.' && !dirSet.has(cur)) {
+                dirSet.add(cur);
+                const next = path.posix.dirname(cur);
+                if (!next || next === cur) break;
+                cur = next;
+              }
+            }
+          }
+
+          const dirs = [...dirSet].sort((a, b) => a.split('/').length - b.split('/').length);
+          const pathToId = new Map();
+
+          for (const dirPath of dirs) {
+            const directoryName = path.posix.basename(dirPath) || dirPath;
+            const depth = dirPath.split('/').filter(Boolean).length || 0;
+            const parentPath = dirPath.includes('/') ? dirPath.substring(0, dirPath.lastIndexOf('/')) : null;
+            const parentId = parentPath ? pathToId.get(parentPath) || null : null;
+
+            const res = await this.db.query(
+              `INSERT INTO directories (repository_id, parent_directory_id, directory_name, path, depth_level)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (repository_id, path) DO UPDATE SET directory_name = EXCLUDED.directory_name
+               RETURNING id`,
+              [repositoryId, parentId, directoryName, dirPath, depth],
+            );
+
+            if (res && res.rows && res.rows[0] && res.rows[0].id) {
+              pathToId.set(dirPath, res.rows[0].id);
+            }
+          }
+        }
+      } catch (dirErr) {
+        this.logger?.warn?.('[SupervisorAgent] Persisting directories failed:', dirErr.message);
+      }
 
       // ── 3. Parsing ──────────────────────────────────────────────────────
       await this._updateJobStatus(jobId, 'parsing');
