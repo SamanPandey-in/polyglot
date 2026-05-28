@@ -487,15 +487,28 @@ export default function AnalyzeFilePage() {
           lineEnd,
           signal: controller.signal,
         });
-
         if (controller.signal.aborted) return;
+
+        // Attempt to fetch line-level impact from the graph API (returns impacted nodes with line ranges)
+        let impactData = null;
+        try {
+          const impactResp = await fetch(
+            `/api/graph/${encodeURIComponent(analysisJobId)}/impact?node=${encodeURIComponent(selectedFilePath)}&hops=3`,
+            { method: 'GET', credentials: 'include' },
+          );
+          if (impactResp.ok) {
+            impactData = await impactResp.json();
+          }
+        } catch (e) {
+          // best-effort; ignore
+        }
 
         setSnippetState({
           status: 'succeeded',
           error: '',
           notice: '',
           ...basePayload,
-          data: result,
+          data: { ...result, impactedNodes: (impactData && impactData.impactedNodes) || null },
         });
         if (!isSnippetPopoverPinned) {
           setSnippetPopoverAnchor((prev) => ({ ...prev, visible: true }));
@@ -660,30 +673,8 @@ export default function AnalyzeFilePage() {
     <div className={compact ? 'space-y-2 text-[11px]' : 'space-y-3 text-xs'}>
       {snippetState.data?.whatItDoes && (
         <div>
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
-            What It Does
-                      <pre
-                        ref={viewerCodeRef}
-                        onMouseUp={handleViewerSelection}
-                        onKeyUp={handleViewerSelection}
-                        className="min-w-max px-4 py-3 font-mono text-xs leading-5 overflow-visible whitespace-pre"
-                      >
-                        <code className={`language-${codeLanguage}`}>
-                          {highlightedLines.map((html, idx) => (
-                            <div
-                              key={`line-${idx + 1}`}
-                              data-line={idx + 1}
-                              onMouseUp={(e) => handleLineSelectionClick(idx + 1, idx + 1, e.nativeEvent || e)}
-                              className="selectable-code-line block w-full cursor-text"
-                              dangerouslySetInnerHTML={{ __html: html || '' }}
-                            />
-                          ))}
-                        </code>
-                      </pre>
-          </p>
-          <p className="text-foreground/90 whitespace-pre-wrap leading-relaxed">
-            {snippetState.data.fileImpact}
-          </p>
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">What It Does</p>
+          <p className="text-foreground/90 whitespace-pre-wrap leading-relaxed">{snippetState.data.fileImpact}</p>
         </div>
       )}
 
@@ -714,16 +705,24 @@ export default function AnalyzeFilePage() {
       )}
 
       {!compact &&
-        Array.isArray(snippetState.data?.directlyImpactedFiles) &&
-        snippetState.data.directlyImpactedFiles.length > 0 && (
+        Array.isArray(snippetState.data?.impactedNodes) &&
+        snippetState.data.impactedNodes.length > 0 && (
           <div>
             <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
-              Directly Impacted Files ({snippetState.data.directlyImpactedFiles.length})
+              Impacted Locations ({snippetState.data.impactedNodes.length})
             </p>
             <ul className="space-y-1">
-              {snippetState.data.directlyImpactedFiles.slice(0, 8).map((file) => (
-                <li key={`direct-${file}`} className="font-mono text-foreground/90 break-all">
-                  {file}
+              {snippetState.data.impactedNodes.slice(0, 12).map((node, idx) => (
+                <li key={`impact-${idx}`} className="font-mono text-foreground/90 break-all">
+                  <div className="flex items-baseline gap-2">
+                    <span className="truncate">{node.path || node.filePath || node}</span>
+                    {node.lines?.source && (
+                      <span className="text-xs text-muted-foreground">lines {node.lines.source[0]}-{node.lines.source[1]}</span>
+                    )}
+                    {node.lines?.target && (
+                      <span className="text-xs text-muted-foreground">(target lines {node.lines.target[0]}-{node.lines.target[1]})</span>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
