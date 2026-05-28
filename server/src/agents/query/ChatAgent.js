@@ -83,7 +83,10 @@ function buildContextBlock(contextEntries) {
 
       const functions = (entry.functionMatches || [])
         .slice(0, 4)
-        .map((fn) => `  ${fn.functionName}: ${fn.bodySummary || 'No function summary available.'}`)
+        .map((fn) => {
+          const snippet = fn.bodySource ? (fn.bodySource.length > 400 ? fn.bodySource.slice(0, 400) + '...': fn.bodySource) : (fn.bodySummary || 'No function summary available.');
+          return `  ${fn.functionName}: ${snippet}`;
+        })
         .join('\n');
 
       return [
@@ -335,9 +338,45 @@ if (this.embeddingClient.isConfigured()) {
                 if (Number(row.distance) < 0.35) highScoringFiles.add(row.file_path);
               }
 
+              // For high-scoring function matches, fetch the actual body_source
+              const fnRows = [];
+              for (const row of functionResult.rows || []) {
+                fnRows.push({ file_path: row.file_path, function_name: row.function_name, distance: Number(row.distance) });
+              }
+
+              const bodyMap = new Map();
+              try {
+                const toFetch = fnRows.filter((r) => r.distance < 0.30);
+                if (toFetch.length > 0) {
+                  // Build a parameterized OR query to fetch matching function_nodes rows
+                  const clauses = [];
+                  const params = [jobId];
+                  let idx = 2;
+                  for (const f of toFetch) {
+                    clauses.push(`(file_path = $${idx} AND name = $${idx + 1})`);
+                    params.push(f.file_path, f.function_name);
+                    idx += 2;
+                  }
+
+                  const q = `SELECT file_path, name, body_source FROM function_nodes WHERE job_id = $1 AND (${clauses.join(' OR ')})`;
+                  const bodies = await this.db.query(q, params).catch(() => ({ rows: [] }));
+                  for (const b of bodies.rows || []) {
+                    if (!b.file_path || !b.name) continue;
+                    bodyMap.set(`${b.file_path}::${b.name}`, b.body_source);
+                  }
+                }
+              } catch (err) {
+                // Best-effort — fall back to bodySummary only
+              }
+
               contextEntries = contextEntries.map((entry) => ({
                 ...entry,
-                functionMatches: functionsByFile.get(entry.filePath) || [],
+                functionMatches: (functionsByFile.get(entry.filePath) || []).map((fn) => ({
+                  functionName: fn.functionName,
+                  bodySummary: fn.bodySummary,
+                  distance: fn.distance,
+                  bodySource: bodyMap.get(`${entry.filePath}::${fn.functionName}`) || null,
+                })),
                 _fnBoost: highScoringFiles.has(entry.filePath) ? 0.2 : 0,
               }));
             } catch {
