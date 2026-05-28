@@ -31,6 +31,7 @@ export class PostgresGraphRepository extends IGraphRepository {
 
       // 1. Nodes
       const nodePaths = [], nodeTypes = [], nodeDeclarations = [], nodeMetrics = [], nodeSummaries = [], nodeDeadFlags = [];
+      const nodeRawContents = [];
       const deadCodeSet = new Set(Array.isArray(topology.deadCodeCandidates) ? topology.deadCodeCandidates : []);
       
       for (const [path, node] of Object.entries(graph)) {
@@ -39,15 +40,16 @@ export class PostgresGraphRepository extends IGraphRepository {
         nodeDeclarations.push(toJson(node?.declarations, []));
         nodeMetrics.push(toJson(node?.metrics, {}));
         nodeSummaries.push(params.enriched?.[path]?.summary || null);
+        nodeRawContents.push(node?.rawContent ?? null);
         nodeDeadFlags.push(deadCodeSet.has(path));
       }
 
       if (nodePaths.length > 0) {
         await client.query(
-          `INSERT INTO graph_nodes (job_id, file_path, file_type, declarations, metrics, summary, is_dead_code)
-           SELECT $1, unnest($2::text[]), unnest($3::text[]), unnest($4::jsonb[]), unnest($5::jsonb[]), unnest($6::text[]), unnest($7::boolean[])
-           ON CONFLICT (job_id, file_path) DO UPDATE SET file_type = EXCLUDED.file_type, declarations = EXCLUDED.declarations, metrics = EXCLUDED.metrics, summary = EXCLUDED.summary, is_dead_code = EXCLUDED.is_dead_code`,
-          [jobId, nodePaths, nodeTypes, nodeDeclarations, nodeMetrics, nodeSummaries, nodeDeadFlags]
+          `INSERT INTO graph_nodes (job_id, file_path, file_type, declarations, metrics, summary, raw_content, is_dead_code)
+           SELECT $1, unnest($2::text[]), unnest($3::text[]), unnest($4::jsonb[]), unnest($5::jsonb[]), unnest($6::text[]), unnest($7::text[]), unnest($8::boolean[])
+           ON CONFLICT (job_id, file_path) DO UPDATE SET file_type = EXCLUDED.file_type, declarations = EXCLUDED.declarations, metrics = EXCLUDED.metrics, summary = EXCLUDED.summary, raw_content = EXCLUDED.raw_content, is_dead_code = EXCLUDED.is_dead_code`,
+          [jobId, nodePaths, nodeTypes, nodeDeclarations, nodeMetrics, nodeSummaries, nodeRawContents, nodeDeadFlags]
         );
       }
 
@@ -90,7 +92,7 @@ export class PostgresGraphRepository extends IGraphRepository {
       }
 
       // 4. Function Nodes
-      const fnPaths = [], fnNames = [], fnKinds = [], fnCalls = [], fnLocs = [];
+      const fnPaths = [], fnNames = [], fnKinds = [], fnCalls = [], fnLocs = [], fnBodySources = [];
       for (const [path, declarations] of Object.entries(functionNodes)) {
         if (!Array.isArray(declarations)) continue;
         for (const dec of declarations) {
@@ -100,15 +102,16 @@ export class PostgresGraphRepository extends IGraphRepository {
           fnKinds.push(dec.kind || 'function');
           fnCalls.push(toJson(dec.calls, []));
           fnLocs.push(dec.loc ?? null);
+          fnBodySources.push(dec.bodySource ?? null);
         }
       }
 
       if (fnPaths.length > 0) {
         await client.query(
-          `INSERT INTO function_nodes (job_id, file_path, name, kind, calls, loc)
-           SELECT $1, unnest($2::text[]), unnest($3::text[]), unnest($4::text[]), unnest($5::jsonb[]), unnest($6::integer[])
-           ON CONFLICT (job_id, file_path, name) DO UPDATE SET kind = EXCLUDED.kind, calls = EXCLUDED.calls, loc = EXCLUDED.loc`,
-          [jobId, fnPaths, fnNames, fnKinds, fnCalls, fnLocs]
+          `INSERT INTO function_nodes (job_id, file_path, name, kind, calls, loc, body_source)
+           SELECT $1, unnest($2::text[]), unnest($3::text[]), unnest($4::text[]), unnest($5::jsonb[]), unnest($6::integer[]), unnest($7::text[])
+           ON CONFLICT (job_id, file_path, name) DO UPDATE SET kind = EXCLUDED.kind, calls = EXCLUDED.calls, loc = EXCLUDED.loc, body_source = EXCLUDED.body_source`,
+          [jobId, fnPaths, fnNames, fnKinds, fnCalls, fnLocs, fnBodySources]
         );
       }
 

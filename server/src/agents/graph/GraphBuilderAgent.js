@@ -185,6 +185,7 @@ export class GraphBuilderAgent extends BaseAgent {
           inDegree: 0,
           outDegree: deps.length,
         },
+        rawContent: parsed.rawContent || null,
       };
 
       functionNodes[source] = Array.isArray(parsed.functionNodes)
