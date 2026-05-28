@@ -701,8 +701,7 @@ export async function createPrCommitController(req, res, next) {
     const repo = typeof req.body.repo === 'string' ? req.body.repo.trim() : '';
     const path = typeof req.body.path === 'string' ? req.body.path.trim() : '';
     const content = typeof req.body.content === 'string' ? req.body.content : null;
-    const base = typeof req.body.base === 'string' && req.body.base ? req.body.base : 'main';
-    const head = typeof req.body.head === 'string' && req.body.head ? req.body.head : null; // new branch
+    const branch = typeof req.body.branch === 'string' && req.body.branch ? req.body.branch : null;
     const commitMessage = typeof req.body.commitMessage === 'string' ? req.body.commitMessage : `Update ${path} via PolyGlot`;
     const prTitle = typeof req.body.prTitle === 'string' ? req.body.prTitle : `Update ${path}`;
     const prBody = typeof req.body.prBody === 'string' ? req.body.prBody : '';
@@ -756,7 +755,8 @@ export async function createPrCommitController(req, res, next) {
     };
 
     const defaultBranch = repoDetails?.default_branch || 'main';
-    const baseCandidates = [...new Set([base, defaultBranch].filter(Boolean))];
+    const baseBranch = branch || defaultBranch;
+    const baseCandidates = [...new Set([baseBranch, defaultBranch].filter(Boolean))];
 
     const getBranchSha = async (branchName) => {
       if (!branchName) return null;
@@ -770,7 +770,7 @@ export async function createPrCommitController(req, res, next) {
     };
 
     // 1) Ensure head branch exists (create from a valid base if provided)
-    const headBranch = head || `${baseCandidates[0] || defaultBranch}-polyglot-${Date.now()}`;
+    const headBranch = `${baseCandidates[0] || defaultBranch}-polyglot-${Date.now()}`;
     try {
       const headSha = await getBranchSha(headBranch);
       if (headSha) {

@@ -119,11 +119,8 @@ export default function AnalyzeFilePage() {
   });
   const [isCreatePrModalOpen, setIsCreatePrModalOpen] = useState(false);
   const [createPrState, setCreatePrState] = useState({
-    baseBranch: '',
-    headBranch: '',
+    branch: '',
     commitMessage: '',
-    prTitle: '',
-    prBody: '',
     isSubmitting: false,
     error: '',
   });
@@ -259,14 +256,10 @@ export default function AnalyzeFilePage() {
     if (!selectedRepository || !selectedFilePath) return;
 
     const defaultBase = selectedRepository.defaultBranch || selectedRepository.branch || 'main';
-    const defaultHead = `${defaultBase}-polyglot-${Date.now()}`;
 
     setCreatePrState({
-      baseBranch: defaultBase,
-      headBranch: defaultHead,
+      branch: defaultBase,
       commitMessage: `Update ${selectedFilePath} via PolyGlot`,
-      prTitle: `Update ${selectedFilePath}`,
-      prBody: '',
       isSubmitting: false,
       error: '',
     });
@@ -277,8 +270,7 @@ export default function AnalyzeFilePage() {
     if (!selectedRepository || !selectedFilePath) return;
 
     const currentContent = isEditing ? editorValue : fileState.data?.content || '';
-    const baseBranch = String(createPrState.baseBranch || '').trim() || selectedRepository.defaultBranch || selectedRepository.branch || 'main';
-    const headBranch = String(createPrState.headBranch || '').trim() || `${baseBranch}-polyglot-${Date.now()}`;
+    const branch = String(createPrState.branch || '').trim() || selectedRepository.defaultBranch || selectedRepository.branch || 'main';
 
     setCreatePrState((prev) => ({ ...prev, isSubmitting: true, error: '' }));
 
@@ -289,11 +281,8 @@ export default function AnalyzeFilePage() {
           path: selectedFilePath,
           content: currentContent,
           sha: fileState.data?.sha || undefined,
-          base: baseBranch,
-          head: headBranch,
+          branch,
           commitMessage: createPrState.commitMessage,
-          prTitle: createPrState.prTitle,
-          prBody: createPrState.prBody,
         }),
       ).unwrap();
 
@@ -1262,36 +1251,13 @@ export default function AnalyzeFilePage() {
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-1 text-sm">
                 <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
-                  Base branch
+                  Branch
                 </span>
                 <input
-                  value={createPrState.baseBranch}
-                  onChange={(event) => setCreatePrState((prev) => ({ ...prev, baseBranch: event.target.value }))}
+                  value={createPrState.branch}
+                  onChange={(event) => setCreatePrState((prev) => ({ ...prev, branch: event.target.value }))}
                   className="w-full rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm outline-none"
                   placeholder={selectedRepository?.defaultBranch || 'main'}
-                />
-              </label>
-
-              <label className="space-y-1 text-sm">
-                <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
-                  Head branch
-                </span>
-                <input
-                  value={createPrState.headBranch}
-                  onChange={(event) => setCreatePrState((prev) => ({ ...prev, headBranch: event.target.value }))}
-                  className="w-full rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm outline-none"
-                  placeholder="feature/polyglot-update"
-                />
-              </label>
-
-              <label className="space-y-1 text-sm md:col-span-2">
-                <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
-                  PR title
-                </span>
-                <input
-                  value={createPrState.prTitle}
-                  onChange={(event) => setCreatePrState((prev) => ({ ...prev, prTitle: event.target.value }))}
-                  className="w-full rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm outline-none"
                 />
               </label>
 
@@ -1303,19 +1269,6 @@ export default function AnalyzeFilePage() {
                   value={createPrState.commitMessage}
                   onChange={(event) => setCreatePrState((prev) => ({ ...prev, commitMessage: event.target.value }))}
                   className="w-full rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm outline-none"
-                />
-              </label>
-
-              <label className="space-y-1 text-sm md:col-span-2">
-                <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
-                  PR body
-                </span>
-                <textarea
-                  value={createPrState.prBody}
-                  onChange={(event) => setCreatePrState((prev) => ({ ...prev, prBody: event.target.value }))}
-                  rows={5}
-                  className="w-full rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm outline-none"
-                  placeholder="Describe the change and any follow-up notes."
                 />
               </label>
             </div>
