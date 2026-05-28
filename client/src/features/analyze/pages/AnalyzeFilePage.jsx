@@ -804,7 +804,7 @@ export default function AnalyzeFilePage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <div className="hidden xl:flex items-center gap-2 rounded-xl border border-border/50 bg-background/55 p-1 shadow-neu-inset">
+                  <div className="hidden xl:flex items-center gap-2 rounded-xl border border-border/50 bg-background/55 p-1 shadow-neu-inset">
                   <div className="inline-flex items-center rounded-lg border border-border/60 bg-background/70 p-0.5">
                     <button
                       type="button"
@@ -826,6 +826,41 @@ export default function AnalyzeFilePage() {
                     >
                       Manual
                     </button>
+                  </div>
+
+                  <div className="ml-2 inline-flex items-center gap-2 rounded-lg border border-border/60 bg-background/70 px-2 py-1">
+                    <label className="text-[10px] text-muted-foreground mr-1">Highlight</label>
+                    <select
+                      value={snippetState.highlightMode || 'none'}
+                      onChange={async (e) => {
+                        const mode = String(e.target.value || 'none');
+                        setSnippetState((s) => ({ ...s, highlightMode: mode }));
+
+                        if (!analysisJobId || !selectedFilePath) return;
+
+                        if (mode === 'none') return;
+
+                        try {
+                          const payload = await (await fetch(`/api/graph/${encodeURIComponent(analysisJobId)}`)).json();
+                          const edges = Array.isArray(payload?.edges) ? payload.edges : payload?.graph?.edges || [];
+                          const ranges = [];
+                          for (const edge of edges) {
+                            if (edge.source === selectedFilePath && (mode === 'imports' ? edge.edge_type === 'IMPORTS' : mode === 'calls' ? edge.edge_type === 'CALLS' : false)) {
+                              if (edge.source_lines) ranges.push(edge.source_lines);
+                              else if (edge.source_lines_json) ranges.push(edge.source_lines_json);
+                            }
+                          }
+                          setSnippetState((s) => ({ ...s, highlightRanges: ranges }));
+                        } catch {
+                          // ignore
+                        }
+                      }}
+                      className="text-xs bg-transparent"
+                    >
+                      <option value="none">None</option>
+                      <option value="imports">Imports</option>
+                      <option value="calls">Calls</option>
+                    </select>
                   </div>
 
                   <span className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/70 px-2 py-1 text-[10px] text-muted-foreground">
@@ -907,15 +942,20 @@ export default function AnalyzeFilePage() {
                       >
                         {Array.from({ length: editorLineCount }, (_, i) => i + 1).join('\n')}
                       </pre>
-                      <textarea
-                        ref={editorTextareaRef}
-                        value={editorValue}
-                        onChange={(e) => setEditorValue(e.target.value)}
-                        onSelect={handleTextareaSelection}
-                        onKeyUp={handleTextareaSelection}
-                        onMouseUp={handleTextareaSelection}
-                        spellCheck={false}
-                        rows={editorLineCount}
+                          {highlightedLines.map((html, idx) => {
+                            const ln = idx + 1;
+                            const ranges = Array.isArray(snippetState.highlightRanges) ? snippetState.highlightRanges : [];
+                            const isHighlighted = ranges.some((r) => Array.isArray(r) && r.length >= 2 && ln >= r[0] && ln <= r[1]);
+                            return (
+                              <div
+                                key={`line-${ln}`}
+                                data-line={ln}
+                                onMouseUp={(e) => handleLineSelectionClick(ln, ln, e.nativeEvent || e)}
+                                className={`selectable-code-line block w-full cursor-text ${isHighlighted ? 'bg-primary/10' : ''}`}
+                                dangerouslySetInnerHTML={{ __html: html || '' }}
+                              />
+                            );
+                          })}
                         className="min-w-max flex-1 resize-none bg-transparent px-3 py-3 font-mono text-xs leading-5 outline-none whitespace-pre overflow-hidden text-foreground/90"
                       />
                     </div>
