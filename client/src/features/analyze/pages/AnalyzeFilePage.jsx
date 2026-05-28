@@ -117,6 +117,16 @@ export default function AnalyzeFilePage() {
     lineEnd: null,
     data: null,
   });
+  const [isCreatePrModalOpen, setIsCreatePrModalOpen] = useState(false);
+  const [createPrState, setCreatePrState] = useState({
+    baseBranch: '',
+    headBranch: '',
+    commitMessage: '',
+    prTitle: '',
+    prBody: '',
+    isSubmitting: false,
+    error: '',
+  });
   const [isSnippetDrawerOpen, setIsSnippetDrawerOpen] = useState(false);
   const [isMobileSnippetSheetOpen, setIsMobileSnippetSheetOpen] = useState(false);
   const [isSnippetPopoverPinned, setIsSnippetPopoverPinned] = useState(false);
@@ -248,14 +258,29 @@ export default function AnalyzeFilePage() {
   const handleCreatePR = async () => {
     if (!selectedRepository || !selectedFilePath) return;
 
+    const defaultBase = selectedRepository.defaultBranch || selectedRepository.branch || 'main';
+    const defaultHead = `${defaultBase}-polyglot-${Date.now()}`;
+
+    setCreatePrState({
+      baseBranch: defaultBase,
+      headBranch: defaultHead,
+      commitMessage: `Update ${selectedFilePath} via PolyGlot`,
+      prTitle: `Update ${selectedFilePath}`,
+      prBody: '',
+      isSubmitting: false,
+      error: '',
+    });
+    setIsCreatePrModalOpen(true);
+  };
+
+  const handleSubmitCreatePR = async () => {
+    if (!selectedRepository || !selectedFilePath) return;
+
     const currentContent = isEditing ? editorValue : fileState.data?.content || '';
-    const defaultBase = selectedRepository.branch || selectedRepository.defaultBranch || 'main';
-    const base = window.prompt('Base branch (target)', defaultBase) || defaultBase;
-    const headDefault = `${base}-polyglot-${Date.now()}`;
-    const head = window.prompt('Head branch (new)', headDefault) || headDefault;
-    const prTitle = window.prompt('PR title', `Update ${selectedFilePath}`) || `Update ${selectedFilePath}`;
-    const prBody = window.prompt('PR body (optional)', '') || '';
-    const commitMessage = window.prompt('Commit message', `Update ${selectedFilePath} via PolyGlot`) || `Update ${selectedFilePath} via PolyGlot`;
+    const baseBranch = String(createPrState.baseBranch || '').trim() || selectedRepository.defaultBranch || selectedRepository.branch || 'main';
+    const headBranch = String(createPrState.headBranch || '').trim() || `${baseBranch}-polyglot-${Date.now()}`;
+
+    setCreatePrState((prev) => ({ ...prev, isSubmitting: true, error: '' }));
 
     try {
       const result = await dispatch(
@@ -264,21 +289,24 @@ export default function AnalyzeFilePage() {
           path: selectedFilePath,
           content: currentContent,
           sha: fileState.data?.sha || undefined,
-          base,
-          head,
-          commitMessage,
-          prTitle,
-          prBody,
+          base: baseBranch,
+          head: headBranch,
+          commitMessage: createPrState.commitMessage,
+          prTitle: createPrState.prTitle,
+          prBody: createPrState.prBody,
         }),
       ).unwrap();
 
+      setIsCreatePrModalOpen(false);
       if (result && result.prUrl) {
         window.open(result.prUrl, '_blank');
-      } else {
-        alert('PR created');
       }
     } catch (err) {
-      alert(`Failed to create PR: ${err?.message || err}`);
+      setCreatePrState((prev) => ({
+        ...prev,
+        isSubmitting: false,
+        error: err?.message || 'Failed to create PR.',
+      }));
     }
   };
 
@@ -1206,6 +1234,117 @@ export default function AnalyzeFilePage() {
                 Insight panel is available after graph data is loaded for this repository/job.
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {isCreatePrModalOpen && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-background/70 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-2xl border border-border/70 bg-background p-5 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
+                  Create PR
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Commit the current file to a branch and open a pull request.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCreatePrModalOpen(false)}
+                className="rounded-md border border-border/60 px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-1 text-sm">
+                <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
+                  Base branch
+                </span>
+                <input
+                  value={createPrState.baseBranch}
+                  onChange={(event) => setCreatePrState((prev) => ({ ...prev, baseBranch: event.target.value }))}
+                  className="w-full rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm outline-none"
+                  placeholder={selectedRepository?.defaultBranch || 'main'}
+                />
+              </label>
+
+              <label className="space-y-1 text-sm">
+                <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
+                  Head branch
+                </span>
+                <input
+                  value={createPrState.headBranch}
+                  onChange={(event) => setCreatePrState((prev) => ({ ...prev, headBranch: event.target.value }))}
+                  className="w-full rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm outline-none"
+                  placeholder="feature/polyglot-update"
+                />
+              </label>
+
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
+                  PR title
+                </span>
+                <input
+                  value={createPrState.prTitle}
+                  onChange={(event) => setCreatePrState((prev) => ({ ...prev, prTitle: event.target.value }))}
+                  className="w-full rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm outline-none"
+                />
+              </label>
+
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
+                  Commit message
+                </span>
+                <input
+                  value={createPrState.commitMessage}
+                  onChange={(event) => setCreatePrState((prev) => ({ ...prev, commitMessage: event.target.value }))}
+                  className="w-full rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm outline-none"
+                />
+              </label>
+
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
+                  PR body
+                </span>
+                <textarea
+                  value={createPrState.prBody}
+                  onChange={(event) => setCreatePrState((prev) => ({ ...prev, prBody: event.target.value }))}
+                  rows={5}
+                  className="w-full rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm outline-none"
+                  placeholder="Describe the change and any follow-up notes."
+                />
+              </label>
+            </div>
+
+            {createPrState.error && (
+              <p className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {createPrState.error}
+              </p>
+            )}
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsCreatePrModalOpen(false)}
+                className="rounded-xl"
+                disabled={createPrState.isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSubmitCreatePR}
+                className="rounded-xl bg-gold text-white"
+                disabled={createPrState.isSubmitting}
+              >
+                {createPrState.isSubmitting ? 'Creating...' : 'Create PR'}
+              </Button>
+            </div>
           </div>
         </div>
       )}
